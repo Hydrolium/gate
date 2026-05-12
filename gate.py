@@ -89,7 +89,7 @@ class Gate:
     def compare(*settings, checkSame=False):
         df = pd.DataFrame([Gate.do(setting).iloc[:, -1] for setting in settings], index=[Gate.title(setting) for setting in settings])
         if checkSame:
-            df.loc['isSame'] = (df.nunique(axis=0) == 1).astype(int)
+            df.loc['isSame'] = (df.nunique() == 1).astype(int)
         return df
 
 set0 = Setting(XOR, AND, reversed=False)
