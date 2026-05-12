@@ -26,26 +26,27 @@ class Gate:
         yield from (tuple(map(int, format(i, f'0{n}b'))) for i in range(2**n))
 
     @staticmethod
-    def operateVariable(variable, operators, out, reversed):
+    def operateVariable(variable, setting, out):
 
         length = len(variable)
 
-        if length - 1 != len(operators):
+        if length - 1 != len(setting.operators):
             raise ValueError(f'{length -1}개의 연산자가 필요합니다.')
         
         varn = 'abcdefghijklmnopqrstuvwxyz'
 
         out.setdefault('variable', []).append(variable)
 
-        if reversed:
+        if setting.reversed:
+
             cal = variable[-1]
 
             out.setdefault(varn[length -1], []).append(variable[length -1])
 
             for i in range(length - 2, -1, -1):
-                cal = 1 if operators[i].func(variable[i], cal) else 0
+                cal = 1 if setting.operators[i].func(variable[i], cal) else 0
 
-                out.setdefault(f'{varn[i]} {operators[i].name}', []).append(variable[i])
+                out.setdefault(f'{setting.operators[i].name} {varn[i]}', []).append(variable[i])
                 out.setdefault(f'R{length - i -2}', []).append(cal)
 
             return cal
@@ -57,42 +58,52 @@ class Gate:
 
         for i in range(0, length - 1):
 
-            cal = 1 if operators[i].func(cal, variable[i + 1]) else 0
+            cal = 1 if setting.operators[i].func(cal, variable[i + 1]) else 0
 
-            out.setdefault(f'{operators[i].name} {varn[i + 1]}', []).append(variable[i + 1])
+            out.setdefault(f'{setting.operators[i].name} {varn[i + 1]}', []).append(variable[i + 1])
             out.setdefault(f'R{i}', []).append(cal)
 
         return cal
 
     @staticmethod
-    def title(operators, reversed=False):
+    def title(setting):
         varn = 'abcdefghijklmnopqrstuvwxyz'
 
-        if reversed:
-            return f"{' '.join([f'({varn[i]} {g.name}' for i, g in enumerate(operators)])} {varn[len(operators)]}{')' * len(operators)}"
+        if setting.reversed:
+            return f"{' '.join([f'({varn[i]} {g.name}' for i, g in enumerate(setting.operators)])} {varn[len(setting.operators)]}{')' * len(setting.operators)}"
 
-        return f"{'(' * len(operators)}{varn[0]} {' '.join([f'{g.name} {varn[i+1]})' for i, g in enumerate(operators)])}"
+        return f"{'(' * len(setting.operators)}{varn[0]} {' '.join([f'{g.name} {varn[i+1]})' for i, g in enumerate(setting.operators)])}"
 
 
     @staticmethod
-    def do(*operators, reversed=False):
+    def do(setting):
 
         out = {}
-        for p in Gate.makeProd(len(operators) + 1):
-            Gate.operateVariable(p, operators, out, reversed)
+        for p in Gate.makeProd(len(setting.operators) + 1):
+            Gate.operateVariable(p, setting, out)
 
         return pd.DataFrame(out).set_index('variable')
 
+
     @staticmethod
-    def compare(*settings):
-        return pd.DataFrame([Gate.do(*(setting.operators), reversed=setting.reversed).iloc[:, -1] for setting in settings], index=[Gate.title(setting.operators, reversed=setting.reversed) for setting in settings])
+    def compare(*settings, checkSame=False):
+        df = pd.DataFrame([Gate.do(setting).iloc[:, -1] for setting in settings], index=[Gate.title(setting) for setting in settings])
+        if checkSame:
+            df.loc['isSame'] = (df.nunique(axis=0) == 1).astype(int)
+        return df
 
-print(Gate.do(XOR, AND, reversed=False))
+set0 = Setting(XOR, AND, reversed=False)
+print("cal::", Gate.title(set0))
+print(Gate.do(set0))
 
-print(Gate.do(XOR, AND, reversed=True))
+print()
+
+set1 = Setting(XOR, AND, reversed=True)
+print("cal::", Gate.title(set1))
+print(Gate.do(set1))
 
 print(Gate.compare(Setting(NAND, NAND, reversed=True), Setting(NAND, NAND)))
 
 print(Gate.compare(Setting(XOR, XOR), Setting(NXOR, NXOR)))
 
-print(Gate.compare(Setting(XOR, XOR), Setting(NXOR, XOR)))
+print(Gate.compare(Setting(XOR, XOR), Setting(NXOR, XOR), checkSame=True))
