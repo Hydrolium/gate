@@ -1,5 +1,3 @@
-import pandas as pd
-
 class Operator:
     def __init__(self, name, func, createLabel):
         self.name = name
