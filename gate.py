@@ -122,7 +122,7 @@ class SubstitutableComponent(VariableComponent):
                 return Constant(values[component.label], values[component.label])
 
     def substitute(self, values):
-        pass
+        raise NotImplementedError("substitute 매세드가 구현되지 않았습니다.")
 
     @staticmethod
     def _getUpdatedUsedVariables(variable, initialTuple):
