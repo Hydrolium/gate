@@ -1,8 +1,11 @@
 class Operator:
     def __init__(self, name, func, createLabel):
         self.name = name
-        self.func = func
+        self._func = func
         self.createLabel = createLabel
+
+    def __call__(self, x, y):
+        return self._func(x, y)
 
 AND = Operator('AND', lambda x, y: x and y, lambda x, y: f"({x}{y})") # ·
 NAND = Operator('NAND', lambda x, y: not (x and y), lambda x, y: f"({x}{y})'")
@@ -189,7 +192,7 @@ class Expression(SubstitutableComponent):
         
         return Evaluated(
             self.operator.createLabel(flatLeft.label, flatRight.label),
-            self.operator.func(flatLeft.value, flatRight.value),
+            self.operator(flatLeft.value, flatRight.value),
             self.usedVariables
         )
 
