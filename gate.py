@@ -325,11 +325,11 @@ if __name__ == "__main__":
 
     O = Constant("1", 1)
 
-    # X = a.nand(b.nand(c))
-    # Y = (a.nand(b)).nand(c)
-    # Simulator.doT(X, Y, variableSorted=True)
+    X = a.nand(b.nand(c))
+    Y = (a.nand(b)).nand(c)
+    Simulator.doT(X, Y, variableSorted=True)
 
-    # print()
+    print()
 
     A = a^b^c
     A1 = a^(b^c)
