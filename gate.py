@@ -80,9 +80,6 @@ class Component:
     def __str__(self):
         return self.label
     
-    def __repr__(self):
-        return self.label
-    
 class VariableComponent(Component):
     pass
 
@@ -92,20 +89,25 @@ class ValuedComponent(Component):
         self.value = int(value)
 
 class Variable(VariableComponent):
-    pass
+    def __repr__(self):
+        return f"Variable(label={self.label})"
 
 class Constant(ValuedComponent):
-    pass
+    def __repr__(self):
+        return f"Constant(label={self.label}, value={self.value})"
 
 class Equation(ValuedComponent):
     def __init__(self, label, value, usedVariables):
         super().__init__(label, value)
         self.usedVariables = usedVariables
 
+    def __repr__(self):
+        return f"Constant(label={self.label}, value={self.value})"
+
 class SubstitutableComponent(VariableComponent):
 
     @staticmethod
-    def flat(component, values):
+    def _flat(component, values):
         if isinstance(component, SubstitutableComponent):
             e = component.substitute(values)
             return e.label, e.value
@@ -118,7 +120,7 @@ class SubstitutableComponent(VariableComponent):
         pass
 
     @staticmethod
-    def getUpdatedUsedVariables(variable, initialTuple):
+    def _getUpdatedUsedVariables(variable, initialTuple):
         if isinstance(variable, Variable):
             return initialTuple + (variable,)
         elif isinstance(variable, (Expression, Equation, ComplementExpression)):
@@ -126,25 +128,27 @@ class SubstitutableComponent(VariableComponent):
         
         return initialTuple
 
-
 class ComplementExpression(SubstitutableComponent):
     def __init__(self, variable):
         super().__init__(f"{variable.label}'")
         self.variable = variable
 
         self.usedVariables = tuple(dict.fromkeys(
-            self.getUpdatedUsedVariables(variable, tuple())
+            self._getUpdatedUsedVariables(variable, tuple())
         ))
 
     def substitute(self, values):
             
-        label, value = self.flat(self.variable, values)
+        label, value = self._flat(self.variable, values)
 
         return Equation(
             f"{label}'",
             int(not value),
             self.usedVariables
         )
+    
+    def __repr__(self):
+        return f"ComplementExpression(label={self.label}"
 
 class Expression(SubstitutableComponent):
     def __init__(self, left, right, operator):
@@ -155,8 +159,8 @@ class Expression(SubstitutableComponent):
         self.operator = operator
 
         self.usedVariables = tuple(dict.fromkeys(
-            self.getUpdatedUsedVariables(
-                right, self.getUpdatedUsedVariables(
+            self._getUpdatedUsedVariables(
+                right, self._getUpdatedUsedVariables(
                     left, tuple()))))
 
     @property
@@ -170,31 +174,37 @@ class Expression(SubstitutableComponent):
     # values: {$variableLabel: $variableValue, ...}
     def substitute(self, values):
 
-        leftLabel, leftValue = self.flat(self.left, values)
-        rightLabel, rightValue = self.flat(self.right, values)
+        leftLabel, leftValue = self._flat(self.left, values)
+        rightLabel, rightValue = self._flat(self.right, values)
 
         return Equation(
             self.operator.createLabel(leftLabel, rightLabel),
             self.operator.func(leftValue, rightValue),
             self.usedVariables
         )
+
+    def __repr__(self):
+        return f"Expression(label={self.label}"
     
-class Result:
+class TestResult:
     def __init__(self, prod, values):
         self.prod = prod
         self.values = values
 
     def __str__(self):
         return f"{tuple(self.prod.values())} {" | ".join([str(v) for v in self.values])}"
+    
+    def __repr__(self):
+        return f"TestResult(prod={self.prod}, values={self.values}"
 
 class Simulator:
     
     @staticmethod
-    def printCell(s, width):
+    def _printCell(s, width):
         print(f"{str(s):>{width}}", end = " ")
 
     @staticmethod
-    def createVariableLabel(usedVariables):
+    def _createVariableLabel(usedVariables):
         return f"({", ".join(v.label for v in usedVariables)})"
 
     @staticmethod
@@ -204,7 +214,7 @@ class Simulator:
 
         widths = []
 
-        vl = Simulator.createVariableLabel(test.usedVariables)
+        vl = Simulator._createVariableLabel(test.usedVariables)
         print(vl, end=" ")
 
         widths.append(len(vl))
@@ -216,9 +226,9 @@ class Simulator:
         print()
 
         for result in test.testResult:
-            Simulator.printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
+            Simulator._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
             for value, width in zip(result.values, widths[1:]):
-                Simulator.printCell(value, width)
+                Simulator._printCell(value, width)
             print()
 
         return test
@@ -230,10 +240,10 @@ class Simulator:
         
         widths = []
 
-        vl = Simulator.createVariableLabel(test.usedVariables)
-        width = max(len(lab) for lab in [Simulator.createVariableLabel(test.usedVariables), *test.labels])
+        vl = Simulator._createVariableLabel(test.usedVariables)
+        width = max(len(lab) for lab in [Simulator._createVariableLabel(test.usedVariables), *test.labels])
         
-        Simulator.printCell(vl, width)
+        Simulator._printCell(vl, width)
 
         widths.append(width)
 
@@ -245,10 +255,10 @@ class Simulator:
         print()
 
         for i, label in enumerate(test.labels):
-            Simulator.printCell(label, widths[0])
+            Simulator._printCell(label, widths[0])
 
             for result, width in zip(test.testResult, widths[1:]):
-                Simulator.printCell(result.values[i], width)
+                Simulator._printCell(result.values[i], width)
             print()
 
         return test
@@ -269,10 +279,10 @@ class Simulator:
         if variableSorted:
             self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
 
-        self.prods = self.makeProds()
-        self.testResult = self.test()
+        self.prods = self._makeProds()
+        self.testResult = self._test()
 
-    def makeProds(self):
+    def _makeProds(self):
         def getProdWithVariable(variable, prev):
 
             if isinstance(variable, VariableComponent):
@@ -288,8 +298,8 @@ class Simulator:
 
         return prod
 
-    def test(self):
-        return tuple([Result(p, tuple(exp.substitute(p).value for exp in self.expressions)) for p in self.prods])
+    def _test(self):
+        return tuple([TestResult(p, tuple(exp.substitute(p).value for exp in self.expressions)) for p in self.prods])
 
 if __name__ == "__main__":
     
@@ -318,7 +328,6 @@ if __name__ == "__main__":
     D1 = (a.nxor(b^c))
 
     Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
-
 
 """
 A NAND (B NAND C)
