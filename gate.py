@@ -88,6 +88,9 @@ class ValuedComponent(Component):
         super().__init__(label)
         self.value = int(value)
 
+    def __str__(self):
+        return f"{self.label} = {self.value}"
+
 class Variable(VariableComponent):
     def __repr__(self):
         return f"Variable(label={self.label})"
@@ -96,7 +99,7 @@ class Constant(ValuedComponent):
     def __repr__(self):
         return f"Constant(label={self.label}, value={self.value})"
 
-class Equation(ValuedComponent):
+class Evaluated(ValuedComponent):
     def __init__(self, label, value, usedVariables):
         super().__init__(label, value)
         self.usedVariables = usedVariables
@@ -109,12 +112,14 @@ class SubstitutableComponent(VariableComponent):
     @staticmethod
     def _flat(component, values):
         if isinstance(component, SubstitutableComponent):
-            e = component.substitute(values)
-            return e.label, e.value
-        elif isinstance(component, (Constant, Equation)):
-            return component.label, component.value
+            return component.substitute(values)
+        elif isinstance(component, (Constant, Evaluated)):
+            return component
         elif isinstance(component, Variable):
-            return component.label, values[component.label]
+            if component.label not in values:
+                return component
+            else:
+                return Constant(values[component.label], values[component.label])
 
     def substitute(self, values):
         pass
@@ -123,7 +128,7 @@ class SubstitutableComponent(VariableComponent):
     def _getUpdatedUsedVariables(variable, initialTuple):
         if isinstance(variable, Variable):
             return initialTuple + (variable,)
-        elif isinstance(variable, (Expression, Equation, ComplementExpression)):
+        elif isinstance(variable, (Expression, Evaluated, ComplementExpression)):
             return initialTuple + (*variable.usedVariables,)
         
         return initialTuple
@@ -138,17 +143,19 @@ class ComplementExpression(SubstitutableComponent):
         ))
 
     def substitute(self, values):
-            
-        label, value = self._flat(self.variable, values)
+        flatVar = self._flat(self.variable, values)
 
-        return Equation(
-            f"{label}'",
-            int(not value),
+        if not set(v.label for v in self.usedVariables).issubset(values):
+            return ComplementExpression(flatVar)
+        
+        return Evaluated(
+            f"{flatVar.label}'",
+            int(not flatVar.value),
             self.usedVariables
         )
     
     def __repr__(self):
-        return f"ComplementExpression(label={self.label}"
+        return f"ComplementExpression(label={self.label})"
 
 class Expression(SubstitutableComponent):
     def __init__(self, left, right, operator):
@@ -174,17 +181,20 @@ class Expression(SubstitutableComponent):
     # values: {$variableLabel: $variableValue, ...}
     def substitute(self, values):
 
-        leftLabel, leftValue = self._flat(self.left, values)
-        rightLabel, rightValue = self._flat(self.right, values)
+        flatLeft = self._flat(self.left, values)
+        flatRight = self._flat(self.right, values)
 
-        return Equation(
-            self.operator.createLabel(leftLabel, rightLabel),
-            self.operator.func(leftValue, rightValue),
+        if not set(v.label for v in self.usedVariables).issubset(values):
+            return Expression(flatLeft, flatRight, self.operator)
+        
+        return Evaluated(
+            self.operator.createLabel(flatLeft.label, flatRight.label),
+            self.operator.func(flatLeft.value, flatRight.value),
             self.usedVariables
         )
 
     def __repr__(self):
-        return f"Expression(label={self.label}"
+        return f"Expression(label={self.label})"
     
 class TestResult:
     def __init__(self, prod, values):
@@ -312,11 +322,11 @@ if __name__ == "__main__":
 
     O = Constant("1", 1)
 
-    X = a.nand(b.nand(c))
-    Y = (a.nand(b)).nand(c)
-    Simulator.doT(X, Y, variableSorted=True)
+    # X = a.nand(b.nand(c))
+    # Y = (a.nand(b)).nand(c)
+    # Simulator.doT(X, Y, variableSorted=True)
 
-    print()
+    # print()
 
     A = a^b^c
     A1 = a^(b^c)
@@ -328,6 +338,8 @@ if __name__ == "__main__":
     D1 = (a.nxor(b^c))
 
     Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+
+    print((~(a+b) + c).substitute({'a':1, 'c':0}))
 
 """
 A NAND (B NAND C)
