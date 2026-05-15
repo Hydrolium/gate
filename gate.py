@@ -345,11 +345,11 @@ class Simulator:
                 return ({**prev, variable.label: variable.value}, )
             return (prev,)
 
-        prod = [{}]
+        prod = ({}, )
         for variable in self.usedVariables:
             prod = [pwv for p in prod for pwv in getProdWithVariable(variable, p)]
 
-        return prod
+        return tuple(prod)
 
     def _test(self):
         return tuple(TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods)
