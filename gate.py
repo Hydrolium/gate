@@ -1,11 +1,11 @@
 class Operator:
-    def __init__(self, name, func, createLabel):
+    def __init__(self, name, handler, createLabel):
         self.name = name
-        self._func = func
+        self.handler = handler
         self.createLabel = createLabel
 
     def __call__(self, x, y):
-        return self._func(x, y)
+        return self.handler(x, y)
 
 AND = Operator('AND', lambda x, y: x and y, lambda x, y: f"({x}{y})") # ·
 NAND = Operator('NAND', lambda x, y: not (x and y), lambda x, y: f"({x}{y})'")
@@ -102,7 +102,7 @@ class Constant(ValuedComponent):
     def __repr__(self):
         return f"Constant(label={self.label}, value={self.value})"
 
-class Evaluated(ValuedComponent):
+class EvaluatedResult(ValuedComponent):
     def __init__(self, label, value, usedVariables):
         super().__init__(label, value)
         self.usedVariables = usedVariables
@@ -113,10 +113,10 @@ class Evaluated(ValuedComponent):
 class SubstitutableComponent(VariableComponent):
 
     @staticmethod
-    def _flat(component, values, keepLabels):
+    def _resolve(component, values, keepLabels):
         if isinstance(component, SubstitutableComponent):
             return component(**values, keepLabels=keepLabels)
-        elif isinstance(component, (Constant, Evaluated)):
+        elif isinstance(component, (Constant, EvaluatedResult)):
             return component
         elif isinstance(component, Variable):
             if component.label not in values:
@@ -130,7 +130,7 @@ class SubstitutableComponent(VariableComponent):
         for component in components:
             if isinstance(component, Variable):
                 res.append(component)
-            elif isinstance(component, (Expression, Evaluated, ComplementExpression)):
+            elif isinstance(component, (Expression, EvaluatedResult, ComplementExpression)):
                 res.extend(component.usedVariables)
 
         return tuple(res)
@@ -170,12 +170,12 @@ class ComplementExpression(SubstitutableComponent):
 
         valuesDict = self._convertArgsToValuesDict(*args, **kargs)
 
-        flatVar = self._flat(self.variable, valuesDict, keepLabels)
+        flatVar = self._resolve(self.variable, valuesDict, keepLabels)
 
         if any(v.label not in valuesDict for v in self.usedVariables):
             return ComplementExpression(flatVar)
         
-        return Evaluated(
+        return EvaluatedResult(
             f"{flatVar.label}'",
             int(not flatVar.value),
             self.usedVariables
@@ -210,13 +210,13 @@ class Expression(SubstitutableComponent):
 
         valuesDict = self._convertArgsToValuesDict(*args, **kargs)
 
-        flatLeft = self._flat(self.left, valuesDict, keepLabels)
-        flatRight = self._flat(self.right, valuesDict, keepLabels)
+        flatLeft = self._resolve(self.left, valuesDict, keepLabels)
+        flatRight = self._resolve(self.right, valuesDict, keepLabels)
 
         if any(v.label not in valuesDict for v in self.usedVariables):
             return Expression(flatLeft, flatRight, self.operator)
         
-        return Evaluated(
+        return EvaluatedResult(
             self.operator.createLabel(flatLeft.label, flatRight.label),
             self.operator(flatLeft.value, flatRight.value),
             self.usedVariables
