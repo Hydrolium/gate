@@ -7,16 +7,16 @@ class Operator:
     def __call__(self, *args):
         return self.handler(*args)
 
-AND = Operator('AND', lambda x, y: x and y, lambda x, y: f"({x}{y})") # ·
-NAND = Operator('NAND', lambda x, y: not (x and y), lambda x, y: f"({x}{y})'")
+AND = Operator('AND', lambda *x: int(all(x)), lambda *x: f"({''.join(x)})")
+NAND = Operator('NAND', lambda *x: int(not all(x)), lambda *x: f"({''.join(x)})'")
 
-OR = Operator('OR', lambda x, y: x or y, lambda x, y: f"({x}+{y})")
-NOR = Operator('NOR', lambda x, y: not (x or y), lambda x, y: f"({x}+{y})'")
+OR = Operator('OR', lambda *x: int(any(x)), lambda *x: f"({'+'.join(x)})'")
+NOR = Operator('NOR', lambda *x: int(not any(x)), lambda *x: f"({'+'.join(x)})'")
 
-XOR = Operator('XOR', lambda x, y: x != y, lambda x, y: f"({x}⊕ {y})")
-NXOR = Operator('NXOR', lambda x, y: x == y, lambda x, y: f"({x}⊙ {y})")
+XOR = Operator('XOR', lambda *x: int(sum((bool(xi) for xi in x)) % 2), lambda *x: f"({'⊕ '.join(x)})'")
+NXOR = Operator('NXOR', lambda x, y: int(bool(x) == bool(y)), lambda x, y: f"({x}⊙ {y})")
 
-NOT = Operator("NOT", lambda x: not x, lambda x: f"{x}'")
+NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
 
 class Component:
     def __init__(self, label):
@@ -27,17 +27,17 @@ class Component:
         return self._label
 
     def __invert__(self):
-        return ComplementExpression(self)
+        return Expression(NOT, self)
 
     def __mul__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, AND)
+        return Expression(AND, self, other)
     
     def __rmul__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(other, self, AND)
+        return Expression(AND, other, self)
     
     def __and__(self, other):
         return self.__mul__(other)
@@ -46,14 +46,14 @@ class Component:
         return self.__rmul__(other)
     
     def __add__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, OR)
+        return Expression(OR, self, other)
     
     def __radd__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(other, self, OR)
+        return Expression(OR, other, self)
 
     def __or__(self, other):
         return self.__add__(other)
@@ -62,29 +62,49 @@ class Component:
         return self.__radd__(other)
     
     def __xor__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, XOR)
+        return Expression(XOR, self, other)
 
     def __rxor__(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(other, self, XOR)
+        return Expression(XOR, other, self)
 
     def nand(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, NAND)
-
+        return Expression(NAND, self, other)
+    
     def nor(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, NOR)
+        return Expression(NOR, self, other)
     
     def nxor(self, other):
-        if isinstance(other, (int, bool)):
+        if isinstance(other, int):
             other = Constant(f"{other}", int(other))
-        return Expression(self, other, NXOR)
+        return Expression(NXOR, self, other)
+    
+    @staticmethod
+    def and_n(*components):
+        return Expression(AND, *components)
+
+    @staticmethod
+    def nand_n(*components):
+        return Expression(NAND, *components)
+    
+    @staticmethod
+    def or_n(*components):
+        return Expression(OR, *components)
+
+    @staticmethod
+    def nor_n(*components):
+        return Expression(NOR, *components)
+    
+    @staticmethod
+    def xor_n(*components):
+        return Expression(XOR, *components)
 
     def __str__(self):
         return self.label
@@ -116,12 +136,64 @@ class EvaluatedResult(ConstComponent):
     def __repr__(self):
         return f"Evaluated(label={self.label}, value={self.value})"
 
-class SubstitutableComponent(Component):
+class Expression(Component):
+    def __init__(self, operator, *terms):
+        super().__init__(None)
 
+        self.terms = terms
+        self.operator = operator
+
+        self.usedVariables = self._combineUsedVariables(terms)
+
+    def __str__(self):
+        return f"F({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
+
+    def __repr__(self):
+        return f"Expression(label={self.label})"
+
+    @property
+    def label(self):
+        return self.operator.createLabel(*(term.label for term in self.terms))
+    
+    @property
+    def usedVariables(self):
+        return self._usedVariables
+    
+    @usedVariables.setter
+    def usedVariables(self, usedVariables):
+        self._usedVariables = tuple(dict.fromkeys(usedVariables))
+
+    # requiedVariables: a, b, c
+    # F(1, 0, 1)
+    # F(1, 0, 1, 1): 4번째 1은 필요없으므로 무시됨.
+    # F(a=1, b=0, c=1)
+    # F(a=1, b=0, c=1, d=1): d 는 필요한 변수 목록에 없으므로 무시됨.
+    # F(1, 0, 1, keepLabels=True)
+    # F(a=1, b=0, c=1, keepLabels=True)
+    def __call__(self, *args, keepLabels=False, **kargs):
+
+        if args and kargs:
+            raise TypeError("위치 인자와 키워드 인자를 동시 사용할 수 없습니다. F(0, 0) 또는 F(a=0, b=0) 형태로 통일이 필요합니다.")
+
+        if args:
+            valuesDict = dict(zip((v.label for v in self.usedVariables), args))
+        elif kargs:
+            valuesDict = kargs
+
+        terms = [self._resolve(term, valuesDict, keepLabels) for term in self.terms]
+
+        if any(v.label not in valuesDict for v in self.usedVariables):
+            return Expression(self.operator, *terms)
+        
+        return EvaluatedResult(
+            self.operator.createLabel(*(term.label for term in terms)),
+            self.operator(*(term.value for term in terms))
+        )
+    
     @staticmethod
     def _resolve(component, values, keepLabels):
-        if isinstance(component, SubstitutableComponent):
-            return component.substitute(**values, keepLabels=keepLabels)
+        if isinstance(component, Expression):
+            return component(**values, keepLabels=keepLabels)
         elif isinstance(component, ConstComponent):
             return component
         elif isinstance(component, Variable):
@@ -133,96 +205,15 @@ class SubstitutableComponent(Component):
                 return Constant(label, val)
 
     @staticmethod
-    def _combineUsedVariables(*components):
+    def _combineUsedVariables(components):
         res = []
         for component in components:
             if isinstance(component, Variable):
                 res.append(component)
-            elif isinstance(component, (Expression, ComplementExpression)):
+            elif isinstance(component, Expression):
                 res.extend(component.usedVariables)
 
         return tuple(res)
-    
-    def __init__(self, label):
-        super().__init__(label)
-
-    @property
-    def usedVariables(self):
-        return self._usedVariables
-    
-    @usedVariables.setter
-    def usedVariables(self, usedVariables):
-        self._usedVariables = tuple(dict.fromkeys(usedVariables))
-
-    def _convertArgsToValuesDict(self, *args, **kargs):
-
-        res = dict(zip((v.label for v in self.usedVariables), args))
-        res.update(kargs)
-
-        return res
-
-    def substitute(self, *args, keepLabels=False, **kargs):
-        raise NotImplementedError("substitute 매세드가 구현되지 않았습니다.")
-    
-    def __call__(self, *args, **kargs):
-        return self.substitute(*args, **kargs)
-
-class ComplementExpression(SubstitutableComponent):
-    def __init__(self, variable):
-        super().__init__(f"{variable.label}'")
-        self.variable = variable
-
-        self.usedVariables = self._combineUsedVariables(variable)
-
-    def substitute(self, *args, keepLabels=False, **kargs):
-
-        valuesDict = self._convertArgsToValuesDict(*args, **kargs)
-
-        var = self._resolve(self.variable, valuesDict, keepLabels)
-
-        if any(v.label not in valuesDict for v in self.usedVariables):
-            return ComplementExpression(var)
-        
-        return EvaluatedResult(f"{var.label}'", int(not var.value))
-    
-    def __repr__(self):
-        return f"ComplementExpression(label={self.label})"
-
-class Expression(SubstitutableComponent):
-    def __init__(self, left, right, operator):
-        super().__init__(None)
-
-        self.left = left
-        self.right = right
-        self.operator = operator
-
-        self.usedVariables = self._combineUsedVariables(left, right)
-
-    @property
-    def label(self):
-        return self.operator.createLabel(self.left.label, self.right.label)
-
-    # substitute(1, 0, 1)
-    # substitute(a=1, b=0, c=1)
-    # substitute(1, 0, 1, keepLabels=True)
-    # substitute(a=1, b=0, c=1, keepLabels=True)
-    def substitute(self, *args, keepLabels=False, **kargs):
-
-        valuesDict = self._convertArgsToValuesDict(*args, **kargs)
-
-        left = self._resolve(self.left, valuesDict, keepLabels)
-        right = self._resolve(self.right, valuesDict, keepLabels)
-
-        if any(v.label not in valuesDict for v in self.usedVariables):
-            return Expression(left, right, self.operator)
-        
-        return EvaluatedResult(
-            self.operator.createLabel(left.label, right.label),
-            self.operator(left.value, right.value)
-        )
-
-    def __repr__(self):
-        return f"Expression(label={self.label})"
     
 class TestResult:
     def __init__(self, prod, values):
@@ -233,7 +224,7 @@ class TestResult:
         return f"{tuple(self.prod.values())} {' | '.join(str(v) for v in self.values)}"
     
     def __repr__(self):
-        return f"TestResult(prod={self.prod}, values={self.values}"
+        return f"TestResult(prod={self.prod}, values={self.values})"
 
 class Simulator:
     
@@ -346,54 +337,43 @@ if __name__ == "__main__":
     e = Variable("e")
     f = Variable("f")
 
-    # O = Constant("1", 1)
+    O = Constant("1", 1)
 
-    # X = a.nand(b.nand(c))
-    # Y = (a.nand(b)).nand(c)
-    # Simulator.doT(X, Y, variableSorted=True)
+    X = a.nand(b.nand(c))
+    Y = (a.nand(b)).nand(c)
+    Simulator.doT(X, Y, variableSorted=True)
 
-    # print()
+    print()
 
-    # A = a^b^c
-    # A1 = a^(b^c)
-    # B = a.nxor(b).nxor(c)
-    # B1 = a.nxor(b.nxor(c))
-    # C = (a^b).nxor(c)
-    # C1 = a^(b.nxor(c))
-    # D = (a.nxor(b))^c
-    # D1 = (a.nxor(b^c))
+    A = a^b^c
+    A1 = a^(b^c)
+    B = a.nxor(b).nxor(c)
+    B1 = a.nxor(b.nxor(c))
+    C = (a^b).nxor(c)
+    C1 = a^(b.nxor(c))
+    D = (a.nxor(b))^c
+    D1 = (a.nxor(b^c))
 
-    # Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+    Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
-    F = ~(a + b) * (c+ d)
+    print()
 
+    Simulator.doT(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
 
-    print(F(0, 1))
-    print(F(1)(1, 2, 3))
+    print()
 
+    Simulator.doT(Component.xor_n(a, b), Component.nxor(a, b))
 
+    print()
 
-"""
-A NAND (B NAND C)
-(A NAND B) NAND C
+    Simulator.doT(Component.xor_n(a, b, c), a.nxor(b.nxor(c)))
 
-A XOR B XOR C
-A NXOR B NXOR C
-A XOR B NXOR C
-A NXOR B XOR C
+    print()
 
-(a, b, c) (0, 0, 0) (0, 0, 1) (0, 1, 0) (0, 1, 1) (1, 0, 0) (1, 0, 1) (1, 1, 0) (1, 1, 1) 
-(a(bc)')'         1         1         1         1         0         0         0         1 
-((ab)'c)'         1         0         1         0         1         0         1         1 
+    Simulator.do(Component.xor_n(a, b, c, d), a.nxor(b.nxor(c.nxor(d))))
 
-  (a, b, c) (0, 0, 0) (0, 0, 1) (0, 1, 0) (0, 1, 1) (1, 0, 0) (1, 0, 1) (1, 1, 0) (1, 1, 1) 
-((a⊕ b)⊕ c)         0         1         1         0         1         0         0         1 
-(a⊕ (b⊕ c))         0         1         1         0         1         0         0         1 
-((a⊙ b)⊙ c)         0         1         1         0         1         0         0         1 
-(a⊙ (b⊙ c))         0         1         1         0         1         0         0         1 
-((a⊕ b)⊙ c)         1         0         0         1         0         1         1         0 
-(a⊕ (b⊙ c))         1         0         0         1         0         1         1         0 
-((a⊙ b)⊕ c)         1         0         0         1         0         1         1         0 
-(a⊙ (b⊕ c))         1         0         0         1         0         1         1         0 
+    print()
 
-"""
+    Simulator.do(Component.xor_n(a, b, c, d, e), a.nxor(b.nxor(c.nxor(d.nxor(e)))))
+
+    print(a == c)
