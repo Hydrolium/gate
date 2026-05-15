@@ -25,19 +25,18 @@ class Component:
     @property
     def label(self):
         return self._label
+    
+    def __str__(self):
+        return self.label
 
     def __invert__(self):
         return Expression(NOT, self)
 
     def __mul__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(AND, self, other)
+        return Expression(AND, self, self._toComponent(other))
     
     def __rmul__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(AND, other, self)
+        return Expression(AND, self._toComponent(other), self)
     
     def __and__(self, other):
         return self.__mul__(other)
@@ -46,14 +45,10 @@ class Component:
         return self.__rmul__(other)
     
     def __add__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(OR, self, other)
+        return Expression(OR, self, self._toComponent(other))
     
     def __radd__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(OR, other, self)
+        return Expression(OR, self._toComponent(other), self)
 
     def __or__(self, other):
         return self.__add__(other)
@@ -62,52 +57,52 @@ class Component:
         return self.__radd__(other)
     
     def __xor__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(XOR, self, other)
+        return Expression(XOR, self, self._toComponent(other))
 
     def __rxor__(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(XOR, other, self)
+        return Expression(XOR, self._toComponent(other), self)
 
     def nand(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(NAND, self, other)
+        return Expression(NAND, self, self._toComponent(other))
     
     def nor(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(NOR, self, other)
+        return Expression(NOR, self._toComponent(other))
     
     def nxor(self, other):
-        if isinstance(other, int):
-            other = Constant(f"{other}", int(other))
-        return Expression(NXOR, self, other)
+        return Expression(NXOR, self, self._toComponent(other))
     
     @staticmethod
     def and_n(*components):
-        return Expression(AND, *components)
+        return Expression(AND, *Component._toComponents(components))
 
     @staticmethod
     def nand_n(*components):
-        return Expression(NAND, *components)
+        return Expression(NAND, *Component._toComponents(components))
     
     @staticmethod
     def or_n(*components):
-        return Expression(OR, *components)
+        return Expression(OR, *Component._toComponents(components))
 
     @staticmethod
     def nor_n(*components):
-        return Expression(NOR, *components)
+        return Expression(NOR, *Component._toComponents(components))
     
     @staticmethod
     def xor_n(*components):
-        return Expression(XOR, *components)
-
-    def __str__(self):
-        return self.label
+        return Expression(XOR, *Component._toComponents(components))
+    
+    @staticmethod
+    def _toComponent(value):
+        if isinstance(value, int):
+            return Constant(str(int(bool(value))), int(bool(value)))
+        elif isinstance(value, Component):
+            return value
+        
+        raise TypeError(f"지원하지 않는 타입입니다: {type(value).__name__}. 'int' 또는 'Component' 타입만 가능합니다.")
+    
+    @staticmethod
+    def _toComponents(values):
+        return tuple(Component._toComponent(v) for v in values)
     
 class VariableComponent(Component):
     pass
@@ -246,7 +241,7 @@ class Simulator:
 
         print()
 
-        for result in test.testResult:
+        for result in test.testResults:
             cls._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
             for value, width in zip(result.values, widths[1:]):
                 cls._printCell(value, width)
@@ -278,11 +273,40 @@ class Simulator:
         for i, label in enumerate(test.labels):
             cls._printCell(label, widths[0])
 
-            for result, width in zip(test.testResult, widths[1:]):
+            for result, width in zip(test.testResults, widths[1:]):
                 cls._printCell(result.values[i], width)
             print()
 
         return test
+    
+    @classmethod
+    def findCase(cls, *expressions, variableSequence=None, variableSorted=False, toTuple=False):
+
+        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
+
+        equalCases = []
+        differentCases = []
+
+        for res in test.testResults:
+            prod = tuple(res.prod.values()) if toTuple else res.prod
+            if len(set(res.values)) == 1:
+                equalCases.append(prod)
+            else:
+                differentCases.append(prod)
+
+        return tuple(equalCases), tuple(differentCases)
+    
+    @classmethod
+    def isEqual(cls, *expressions, variableSequence=None, variableSorted=False):
+        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
+
+        return all(len(set(res.values)) == 1 for res in test.testResults)
+
+    @classmethod
+    def isComplement(cls, expression0, expression1, variableSequence=None, variableSorted=False):
+        test = cls(expression0, expression1, variableSequence=variableSequence, variableSorted=variableSorted)
+        return all(len(set(res.values)) == 2 for res in test.testResults)
+
 
     def __init__(self, *expressions, variableSequence=None, variableSorted=False):
         self.expressions = expressions
@@ -301,7 +325,7 @@ class Simulator:
             self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
 
         self.prods = self._makeProds()
-        self.testResult = self._test()
+        self.testResults = self._test()
 
     def _makeProds(self):
         def getProdWithVariable(variable, prev):
@@ -318,7 +342,7 @@ class Simulator:
         return prod
 
     def _test(self):
-        return tuple([TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods])
+        return tuple(TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods)
     
     @staticmethod
     def _printCell(s, width):
@@ -329,13 +353,19 @@ class Simulator:
         return f"({', '.join(v.label for v in usedVariables)})"
 
 if __name__ == "__main__":
-    
+
     a = Variable("a")
     b = Variable("b")
     c = Variable("c")
     d = Variable("d")
     e = Variable("e")
     f = Variable("f")
+    g = Variable("g")
+    h = Variable("h")
+    i = Variable("i")
+    j = Variable("j")
+    k = Variable("k")
+    l = Variable("l")
 
     O = Constant("1", 1)
 
@@ -362,18 +392,21 @@ if __name__ == "__main__":
 
     print()
 
-    Simulator.doT(Component.xor_n(a, b), Component.nxor(a, b))
+    # n 변수에서 xor과 nxor 인지 확인
+    vals = [a, b, c, d, e, f, g, h, i, j, k, l]
+    for i in range(2, len(vals) + 1):
+        curV = vals[:i]
+        F1 = Component.xor_n(*curV)
+        F2 = curV[0]
+        for v in curV[1:]:
+            F2 = F2.nxor(v)
 
+        print(f"(변수 수) = {len(curV)} 에서 XOR과 NXOR 연산은 ", end="")
+        if Simulator.isEqual(F1, F2):
+            print("같음.")
+        if Simulator.isComplement(F1, F2):
+            print("보수임.")
+
+    print(Component.and_n(1, 1, a))
+    
     print()
-
-    Simulator.doT(Component.xor_n(a, b, c), a.nxor(b.nxor(c)))
-
-    print()
-
-    Simulator.do(Component.xor_n(a, b, c, d), a.nxor(b.nxor(c.nxor(d))))
-
-    print()
-
-    Simulator.do(Component.xor_n(a, b, c, d, e), a.nxor(b.nxor(c.nxor(d.nxor(e)))))
-
-    print(a == c)
