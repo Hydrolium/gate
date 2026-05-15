@@ -228,22 +228,14 @@ class TestResult:
 
 class Simulator:
     
-    @staticmethod
-    def _printCell(s, width):
-        print(f"{str(s):>{width}}", end = " ")
-
-    @staticmethod
-    def _createVariableLabel(usedVariables):
-        return f"({', '.join(v.label for v in usedVariables)})"
-
-    @staticmethod
-    def do(*expressions, variableSequence=None, variableSorted=False):
+    @classmethod
+    def do(cls, *expressions, variableSequence=None, variableSorted=False):
         
-        test = Simulator(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
+        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
         widths = []
 
-        vl = Simulator._createVariableLabel(test.usedVariables)
+        vl = cls._createVariableLabel(test.usedVariables)
         print(vl, end=" ")
 
         widths.append(len(vl))
@@ -255,24 +247,24 @@ class Simulator:
         print()
 
         for result in test.testResult:
-            Simulator._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
+            cls._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
             for value, width in zip(result.values, widths[1:]):
-                Simulator._printCell(value, width)
+                cls._printCell(value, width)
             print()
 
         return test
 
-    @staticmethod
-    def doT(*expressions, variableSequence=None, variableSorted=False):
+    @classmethod
+    def doT(cls, *expressions, variableSequence=None, variableSorted=False):
         
-        test = Simulator(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
+        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
         
         widths = []
 
-        vl = Simulator._createVariableLabel(test.usedVariables)
-        width = max(len(lab) for lab in [Simulator._createVariableLabel(test.usedVariables), *test.labels])
+        vl = cls._createVariableLabel(test.usedVariables)
+        width = max(len(lab) for lab in [cls._createVariableLabel(test.usedVariables), *test.labels])
         
-        Simulator._printCell(vl, width)
+        cls._printCell(vl, width)
 
         widths.append(width)
 
@@ -284,10 +276,10 @@ class Simulator:
         print()
 
         for i, label in enumerate(test.labels):
-            Simulator._printCell(label, widths[0])
+            cls._printCell(label, widths[0])
 
             for result, width in zip(test.testResult, widths[1:]):
-                Simulator._printCell(result.values[i], width)
+                cls._printCell(result.values[i], width)
             print()
 
         return test
@@ -327,6 +319,14 @@ class Simulator:
 
     def _test(self):
         return tuple([TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods])
+    
+    @staticmethod
+    def _printCell(s, width):
+        print(f"{str(s):>{width}}", end = " ")
+
+    @staticmethod
+    def _createVariableLabel(usedVariables):
+        return f"({', '.join(v.label for v in usedVariables)})"
 
 if __name__ == "__main__":
     
