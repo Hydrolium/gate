@@ -7,8 +7,8 @@ class Operator:
     def __call__(self, *args):
         return self.handler(*args)
 
-AND = Operator('AND', lambda *x: int(all(x)), lambda *x: f"({''.join(x)})")
-NAND = Operator('NAND', lambda *x: int(not all(x)), lambda *x: f"({''.join(x)})'")
+AND = Operator('AND', lambda *x: int(all(x)), lambda *x: f"({'·'.join(x)})")
+NAND = Operator('NAND', lambda *x: int(not all(x)), lambda *x: f"({'·'.join(x)})'")
 
 OR = Operator('OR', lambda *x: int(any(x)), lambda *x: f"({'+'.join(x)})'")
 NOR = Operator('NOR', lambda *x: int(not any(x)), lambda *x: f"({'+'.join(x)})'")
