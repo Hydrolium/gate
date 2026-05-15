@@ -224,7 +224,7 @@ class TestResult:
 class Simulator:
     
     @classmethod
-    def do(cls, *expressions, variableSequence=None, variableSorted=False):
+    def printTruthTable(cls, *expressions, variableSequence=None, variableSorted=False):
         
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
@@ -250,7 +250,7 @@ class Simulator:
         return test
 
     @classmethod
-    def doT(cls, *expressions, variableSequence=None, variableSorted=False):
+    def printTransposedTruthTable(cls, *expressions, variableSequence=None, variableSorted=False):
         
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
         
@@ -282,6 +282,9 @@ class Simulator:
     @classmethod
     def findCase(cls, *expressions, variableSequence=None, variableSorted=False, toTuple=False):
 
+        if not Simulator._isUsingSameVariables(expressions):
+            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
+
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
         equalCases = []
@@ -298,12 +301,19 @@ class Simulator:
     
     @classmethod
     def isEqual(cls, *expressions, variableSequence=None, variableSorted=False):
+
+        if not Simulator._isUsingSameVariables(expressions):
+            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
         return all(len(set(res.values)) == 1 for res in test.testResults)
 
     @classmethod
     def isComplement(cls, expression0, expression1, variableSequence=None, variableSorted=False):
+
+        if not Simulator._isUsingSameVariables((expression0, expression1)):
+            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
+
         test = cls(expression0, expression1, variableSequence=variableSequence, variableSorted=variableSorted)
         return all(len(set(res.values)) == 2 for res in test.testResults)
 
@@ -318,7 +328,7 @@ class Simulator:
 
         if variableSequence is not None:
             if set(self.usedVariables) != set(variableSequence):
-                raise ValueError("사용된 변수들의 중복없는 튜플이 필요합니다.")
+                raise ValueError("전달된 variableSequence가 수식의 변수 목록과 일치하지 않습니다.")
             self.usedVariables = variableSequence
         
         if variableSorted:
@@ -351,6 +361,11 @@ class Simulator:
     @staticmethod
     def _createVariableLabel(usedVariables):
         return f"({', '.join(v.label for v in usedVariables)})"
+    
+    @staticmethod
+    def _isUsingSameVariables(expressions):
+        variables = set(expressions[0].usedVariables)
+        return all(set(exp.usedVariables) == variables for exp in expressions)
 
 if __name__ == "__main__":
 
@@ -371,7 +386,7 @@ if __name__ == "__main__":
 
     X = a.nand(b.nand(c))
     Y = (a.nand(b)).nand(c)
-    Simulator.doT(X, Y, variableSorted=True)
+    Simulator.printTruthTable(X, Y, variableSorted=True)
 
     print()
 
@@ -384,11 +399,11 @@ if __name__ == "__main__":
     D = (a.nxor(b))^c
     D1 = (a.nxor(b^c))
 
-    Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+    Simulator.printTruthTable(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
     print()
 
-    Simulator.doT(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
+    Simulator.printTransposedTruthTable(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
 
     print()
 
@@ -408,5 +423,5 @@ if __name__ == "__main__":
             print("보수임.")
 
     print(Component.and_n(1, 1, a))
-    
+
     print()
