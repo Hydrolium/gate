@@ -108,31 +108,32 @@ class Evaluated(ValuedComponent):
         self.usedVariables = usedVariables
 
     def __repr__(self):
-        return f"Constant(label={self.label}, value={self.value})"
+        return f"Evaluated(label={self.label}, value={self.value})"
 
 class SubstitutableComponent(VariableComponent):
 
     @staticmethod
-    def _flat(component, values):
+    def _flat(component, values, keepLabels):
         if isinstance(component, SubstitutableComponent):
-            return component.substitute(values)
+            return component(**values, keepLabels=keepLabels)
         elif isinstance(component, (Constant, Evaluated)):
             return component
         elif isinstance(component, Variable):
             if component.label not in values:
                 return component
             else:
-                return Constant(values[component.label], values[component.label])
+                return Constant(component.label if keepLabels else values[component.label], values[component.label])
 
     @staticmethod
-    def _combineUsedVariables(component, usedVariables=()):
-        if isinstance(component, Variable):
-            return usedVariables + (component,)
-        
-        if isinstance(component, (Expression, Evaluated, ComplementExpression)):
-            return usedVariables + (*component.usedVariables,)
-        
-        return usedVariables
+    def _combineUsedVariables(*components):
+        res = []
+        for component in components:
+            if isinstance(component, Variable):
+                res.append(component)
+            elif isinstance(component, (Expression, Evaluated, ComplementExpression)):
+                res.extend(component.usedVariables)
+
+        return tuple(res)
     
     def __init__(self, label):
         super().__init__(label)
@@ -145,8 +146,18 @@ class SubstitutableComponent(VariableComponent):
     def usedVariables(self, usedVariables):
         self._usedVariables = tuple(dict.fromkeys(usedVariables))
 
-    def substitute(self, values):
+    def _convertArgsToValuesDict(self, *args, **kargs):
+
+        res = dict(zip((v.label for v in self.usedVariables), args))
+        res.update(kargs)
+
+        return res
+
+    def substitute(self, *args, keepLabels=False, **kargs):
         raise NotImplementedError("substitute 매세드가 구현되지 않았습니다.")
+    
+    def __call__(self, *args, **kargs):
+        return self.substitute(*args, **kargs)
 
 class ComplementExpression(SubstitutableComponent):
     def __init__(self, variable):
@@ -155,10 +166,13 @@ class ComplementExpression(SubstitutableComponent):
 
         self.usedVariables = self._combineUsedVariables(variable)
 
-    def substitute(self, values):
-        flatVar = self._flat(self.variable, values)
+    def substitute(self, *args, keepLabels=False, **kargs):
 
-        if not set(v.label for v in self.usedVariables).issubset(values):
+        valuesDict = self._convertArgsToValuesDict(*args, **kargs)
+
+        flatVar = self._flat(self.variable, valuesDict, keepLabels)
+
+        if any(v.label not in valuesDict for v in self.usedVariables):
             return ComplementExpression(flatVar)
         
         return Evaluated(
@@ -178,9 +192,7 @@ class Expression(SubstitutableComponent):
         self.right = right
         self.operator = operator
 
-        self.usedVariables = self._combineUsedVariables(
-                right, self._combineUsedVariables(
-                    left, tuple()))
+        self.usedVariables = self._combineUsedVariables(right, left)
 
     @property
     def label(self):
@@ -190,13 +202,18 @@ class Expression(SubstitutableComponent):
     def label(self, value):
         pass
 
-    # values: {$variableLabel: $variableValue, ...}
-    def substitute(self, values):
+    # substitute(1, 0, 1)
+    # substitute(a=1, b=0, c=1)
+    # substitute(1, 0, 1, keepLabels=True)
+    # substitute(a=1, b=0, c=1, keepLabels=True)
+    def substitute(self, *args, keepLabels=False, **kargs):
 
-        flatLeft = self._flat(self.left, values)
-        flatRight = self._flat(self.right, values)
+        valuesDict = self._convertArgsToValuesDict(*args, **kargs)
 
-        if not set(v.label for v in self.usedVariables).issubset(values):
+        flatLeft = self._flat(self.left, valuesDict, keepLabels)
+        flatRight = self._flat(self.right, valuesDict, keepLabels)
+
+        if any(v.label not in valuesDict for v in self.usedVariables):
             return Expression(flatLeft, flatRight, self.operator)
         
         return Evaluated(
@@ -321,7 +338,7 @@ class Simulator:
         return prod
 
     def _test(self):
-        return tuple([TestResult(p, tuple(exp.substitute(p).value for exp in self.expressions)) for p in self.prods])
+        return tuple([TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods])
 
 if __name__ == "__main__":
     
@@ -351,9 +368,17 @@ if __name__ == "__main__":
 
     Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
-    print((~(a+b) + c).substitute({'a':1, 'c':0}))
+    print((~(a+b) + c)(a=1, c=3))
+    print((~(a+b) + c)(1, 2, 3))
+    print((~(a+b) + c)(a=1, c=3, keepLabels=True))
 
-    print((a+b+c+a).usedVariables)
+    F = a+b+c+d
+    # print(F.usedVariables)
+    # print(F(a=1, b=2))
+    print(F(a=1, b=1, keepLabels=True))
+    print(F(1, 0, 0, 1, b=1))
+
+    print(F.usedVariables)
 
 """
 A NAND (B NAND C)
