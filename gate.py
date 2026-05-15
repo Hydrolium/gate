@@ -124,26 +124,36 @@ class SubstitutableComponent(VariableComponent):
             else:
                 return Constant(values[component.label], values[component.label])
 
+    @staticmethod
+    def _combineUsedVariables(component, usedVariables=()):
+        if isinstance(component, Variable):
+            return usedVariables + (component,)
+        
+        if isinstance(component, (Expression, Evaluated, ComplementExpression)):
+            return usedVariables + (*component.usedVariables,)
+        
+        return usedVariables
+    
+    def __init__(self, label):
+        super().__init__(label)
+
+    @property
+    def usedVariables(self):
+        return self._usedVariables
+    
+    @usedVariables.setter
+    def usedVariables(self, usedVariables):
+        self._usedVariables = tuple(dict.fromkeys(usedVariables))
+
     def substitute(self, values):
         raise NotImplementedError("substitute 매세드가 구현되지 않았습니다.")
-
-    @staticmethod
-    def _getUpdatedUsedVariables(variable, initialTuple):
-        if isinstance(variable, Variable):
-            return initialTuple + (variable,)
-        elif isinstance(variable, (Expression, Evaluated, ComplementExpression)):
-            return initialTuple + (*variable.usedVariables,)
-        
-        return initialTuple
 
 class ComplementExpression(SubstitutableComponent):
     def __init__(self, variable):
         super().__init__(f"{variable.label}'")
         self.variable = variable
 
-        self.usedVariables = tuple(dict.fromkeys(
-            self._getUpdatedUsedVariables(variable, tuple())
-        ))
+        self.usedVariables = self._combineUsedVariables(variable)
 
     def substitute(self, values):
         flatVar = self._flat(self.variable, values)
@@ -168,10 +178,9 @@ class Expression(SubstitutableComponent):
         self.right = right
         self.operator = operator
 
-        self.usedVariables = tuple(dict.fromkeys(
-            self._getUpdatedUsedVariables(
-                right, self._getUpdatedUsedVariables(
-                    left, tuple()))))
+        self.usedVariables = self._combineUsedVariables(
+                right, self._combineUsedVariables(
+                    left, tuple()))
 
     @property
     def label(self):
@@ -343,6 +352,8 @@ if __name__ == "__main__":
     Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
     print((~(a+b) + c).substitute({'a':1, 'c':0}))
+
+    print((a+b+c+a).usedVariables)
 
 """
 A NAND (B NAND C)
