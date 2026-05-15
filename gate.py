@@ -4,8 +4,8 @@ class Operator:
         self.handler = handler
         self.createLabel = createLabel
 
-    def __call__(self, x, y):
-        return self.handler(x, y)
+    def __call__(self, *args):
+        return self.handler(*args)
 
 AND = Operator('AND', lambda x, y: x and y, lambda x, y: f"({x}{y})") # ·
 NAND = Operator('NAND', lambda x, y: not (x and y), lambda x, y: f"({x}{y})'")
@@ -16,9 +16,15 @@ NOR = Operator('NOR', lambda x, y: not (x or y), lambda x, y: f"({x}+{y})'")
 XOR = Operator('XOR', lambda x, y: x != y, lambda x, y: f"({x}⊕ {y})")
 NXOR = Operator('NXOR', lambda x, y: x == y, lambda x, y: f"({x}⊙ {y})")
 
+NOT = Operator("NOT", lambda x: not x, lambda x: f"{x}'")
+
 class Component:
     def __init__(self, label):
-        self.label = label
+        self._label = label
+
+    @property
+    def label(self):
+        return self._label
 
     def __invert__(self):
         return ComplementExpression(self)
@@ -86,10 +92,14 @@ class Component:
 class VariableComponent(Component):
     pass
 
-class ValuedComponent(Component):
+class ConstComponent(Component):
     def __init__(self, label, value):
         super().__init__(label)
-        self.value = int(value)
+        self._value = int(value)
+    
+    @property
+    def value(self):
+        return self._value
 
     def __str__(self):
         return f"{self.label} = {self.value}"
@@ -98,31 +108,29 @@ class Variable(VariableComponent):
     def __repr__(self):
         return f"Variable(label={self.label})"
 
-class Constant(ValuedComponent):
+class Constant(ConstComponent):
     def __repr__(self):
         return f"Constant(label={self.label}, value={self.value})"
 
-class EvaluatedResult(ValuedComponent):
-    def __init__(self, label, value, usedVariables):
-        super().__init__(label, value)
-        self.usedVariables = usedVariables
-
+class EvaluatedResult(ConstComponent):
     def __repr__(self):
         return f"Evaluated(label={self.label}, value={self.value})"
 
-class SubstitutableComponent(VariableComponent):
+class SubstitutableComponent(Component):
 
     @staticmethod
     def _resolve(component, values, keepLabels):
         if isinstance(component, SubstitutableComponent):
-            return component(**values, keepLabels=keepLabels)
-        elif isinstance(component, (Constant, EvaluatedResult)):
+            return component.substitute(**values, keepLabels=keepLabels)
+        elif isinstance(component, ConstComponent):
             return component
         elif isinstance(component, Variable):
             if component.label not in values:
                 return component
             else:
-                return Constant(component.label if keepLabels else values[component.label], values[component.label])
+                val = values[component.label]
+                label = component.label if keepLabels else str(val)
+                return Constant(label, val)
 
     @staticmethod
     def _combineUsedVariables(*components):
@@ -130,7 +138,7 @@ class SubstitutableComponent(VariableComponent):
         for component in components:
             if isinstance(component, Variable):
                 res.append(component)
-            elif isinstance(component, (Expression, EvaluatedResult, ComplementExpression)):
+            elif isinstance(component, (Expression, ComplementExpression)):
                 res.extend(component.usedVariables)
 
         return tuple(res)
@@ -170,16 +178,12 @@ class ComplementExpression(SubstitutableComponent):
 
         valuesDict = self._convertArgsToValuesDict(*args, **kargs)
 
-        flatVar = self._resolve(self.variable, valuesDict, keepLabels)
+        var = self._resolve(self.variable, valuesDict, keepLabels)
 
         if any(v.label not in valuesDict for v in self.usedVariables):
-            return ComplementExpression(flatVar)
+            return ComplementExpression(var)
         
-        return EvaluatedResult(
-            f"{flatVar.label}'",
-            int(not flatVar.value),
-            self.usedVariables
-        )
+        return EvaluatedResult(f"{var.label}'", int(not var.value))
     
     def __repr__(self):
         return f"ComplementExpression(label={self.label})"
@@ -192,15 +196,11 @@ class Expression(SubstitutableComponent):
         self.right = right
         self.operator = operator
 
-        self.usedVariables = self._combineUsedVariables(right, left)
+        self.usedVariables = self._combineUsedVariables(left, right)
 
     @property
     def label(self):
         return self.operator.createLabel(self.left.label, self.right.label)
-
-    @label.setter
-    def label(self, value):
-        pass
 
     # substitute(1, 0, 1)
     # substitute(a=1, b=0, c=1)
@@ -210,16 +210,15 @@ class Expression(SubstitutableComponent):
 
         valuesDict = self._convertArgsToValuesDict(*args, **kargs)
 
-        flatLeft = self._resolve(self.left, valuesDict, keepLabels)
-        flatRight = self._resolve(self.right, valuesDict, keepLabels)
+        left = self._resolve(self.left, valuesDict, keepLabels)
+        right = self._resolve(self.right, valuesDict, keepLabels)
 
         if any(v.label not in valuesDict for v in self.usedVariables):
-            return Expression(flatLeft, flatRight, self.operator)
+            return Expression(left, right, self.operator)
         
         return EvaluatedResult(
-            self.operator.createLabel(flatLeft.label, flatRight.label),
-            self.operator(flatLeft.value, flatRight.value),
-            self.usedVariables
+            self.operator.createLabel(left.label, right.label),
+            self.operator(left.value, right.value)
         )
 
     def __repr__(self):
@@ -231,7 +230,7 @@ class TestResult:
         self.values = values
 
     def __str__(self):
-        return f"{tuple(self.prod.values())} {" | ".join([str(v) for v in self.values])}"
+        return f"{tuple(self.prod.values())} {' | '.join(str(v) for v in self.values)}"
     
     def __repr__(self):
         return f"TestResult(prod={self.prod}, values={self.values}"
@@ -244,7 +243,7 @@ class Simulator:
 
     @staticmethod
     def _createVariableLabel(usedVariables):
-        return f"({", ".join(v.label for v in usedVariables)})"
+        return f"({', '.join(v.label for v in usedVariables)})"
 
     @staticmethod
     def do(*expressions, variableSequence=None, variableSorted=False):
@@ -310,7 +309,7 @@ class Simulator:
             var for exp in expressions for var in exp.usedVariables
         ))
 
-        if variableSequence != None:
+        if variableSequence is not None:
             if set(self.usedVariables) != set(variableSequence):
                 raise ValueError("사용된 변수들의 중복없는 튜플이 필요합니다.")
             self.usedVariables = variableSequence
@@ -323,12 +322,10 @@ class Simulator:
 
     def _makeProds(self):
         def getProdWithVariable(variable, prev):
-
             if isinstance(variable, VariableComponent):
                 return tuple([{**prev, variable.label: val} for val in (0, 1)])
-            elif isinstance(variable, ValuedComponent):
+            elif isinstance(variable, ConstComponent):
                 return ({**prev, variable.label: variable.value}, )
-            
             return (prev,)
 
         prod = [{}]
@@ -349,36 +346,32 @@ if __name__ == "__main__":
     e = Variable("e")
     f = Variable("f")
 
-    O = Constant("1", 1)
+    # O = Constant("1", 1)
 
-    X = a.nand(b.nand(c))
-    Y = (a.nand(b)).nand(c)
-    Simulator.doT(X, Y, variableSorted=True)
+    # X = a.nand(b.nand(c))
+    # Y = (a.nand(b)).nand(c)
+    # Simulator.doT(X, Y, variableSorted=True)
 
-    print()
+    # print()
 
-    A = a^b^c
-    A1 = a^(b^c)
-    B = a.nxor(b).nxor(c)
-    B1 = a.nxor(b.nxor(c))
-    C = (a^b).nxor(c)
-    C1 = a^(b.nxor(c))
-    D = (a.nxor(b))^c
-    D1 = (a.nxor(b^c))
+    # A = a^b^c
+    # A1 = a^(b^c)
+    # B = a.nxor(b).nxor(c)
+    # B1 = a.nxor(b.nxor(c))
+    # C = (a^b).nxor(c)
+    # C1 = a^(b.nxor(c))
+    # D = (a.nxor(b))^c
+    # D1 = (a.nxor(b^c))
 
-    Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+    # Simulator.doT(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
-    print((~(a+b) + c)(a=1, c=3))
-    print((~(a+b) + c)(1, 2, 3))
-    print((~(a+b) + c)(a=1, c=3, keepLabels=True))
+    F = ~(a + b) * (c+ d)
 
-    F = a+b+c+d
-    # print(F.usedVariables)
-    # print(F(a=1, b=2))
-    print(F(a=1, b=1, keepLabels=True))
-    print(F(1, 0, 0, 1, b=1))
 
-    print(F.usedVariables)
+    print(F(0, 1))
+    print(F(1)(1, 2, 3))
+
+
 
 """
 A NAND (B NAND C)
