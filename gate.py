@@ -1,3 +1,11 @@
+def reduce(func, iterable, inital=None):
+    it = iter(iterable)
+    acc = inital or next(it)
+
+    for v in it:
+        acc = func(acc, v)
+    return acc
+
 class Operator:
     def __init__(self, name, handler, createLabel):
         self.name = name
@@ -10,11 +18,11 @@ class Operator:
 AND = Operator('AND', lambda *x: int(all(x)), lambda *x: f"({'·'.join(x)})")
 NAND = Operator('NAND', lambda *x: int(not all(x)), lambda *x: f"({'·'.join(x)})'")
 
-OR = Operator('OR', lambda *x: int(any(x)), lambda *x: f"({'+'.join(x)})'")
+OR = Operator('OR', lambda *x: int(any(x)), lambda *x: f"({'+'.join(x)})")
 NOR = Operator('NOR', lambda *x: int(not any(x)), lambda *x: f"({'+'.join(x)})'")
 
-XOR = Operator('XOR', lambda *x: int(sum((bool(xi) for xi in x)) % 2), lambda *x: f"({'⊕ '.join(x)})'")
-NXOR = Operator('NXOR', lambda x, y: int(bool(x) == bool(y)), lambda x, y: f"({x}⊙ {y})")
+XOR = Operator('XOR', lambda *x: int(reduce(lambda x1, x2: x1 != x2, x)), lambda *x: f"({'⊕ '.join(x)})")
+NXOR = Operator('NXOR', lambda *x: int(not reduce(lambda x1, x2: x1 != x2, x)), lambda *x: f"({x[0]}⊙ {x[1]})" if len(x) == 2 else f"({'⊕ '.join(x)})'")
 
 NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
 
@@ -99,6 +107,10 @@ class Component:
     def xor_n(*components):
         return Expression(XOR, *Component._toComponents(components))
     
+    @staticmethod
+    def nxor_n(*components):
+        return Expression(NXOR, *Component._toComponents(components))
+
     @staticmethod
     def _toComponent(value):
         if isinstance(value, int):
@@ -252,14 +264,26 @@ class Simulator:
         self.testResults = self._test()
 
     def _makeProds(self):
-        prod = ({}, )
-        for variable in self.usedVariables:
-            prod = [pwv for p in prod for pwv in [{**p, variable.label: val} for val in (0, 1)]]
+        labels = [v.label for v in self.usedVariables]
+
+        n = len(self.usedVariables)
+        prod = []
+        for i in range(1 << n):
+            row = {labels[j]: (i >> (n - 1 -j )) & 1 for j in range(n)}
+            prod.append(row)
 
         return tuple(prod)
-
+                
     def _test(self):
-        return tuple(TestResult(p, tuple(exp(**p).value for exp in self.components)) for p in self.prods)
+        return tuple(
+            TestResult(
+                p, tuple(
+                    exp(**p).value
+                    for exp in self.components
+                )
+            )
+            for p in self.prods
+        )
     
     def printTruthTable(self):
 
@@ -369,8 +393,11 @@ if __name__ == "__main__":
 
     print()
 
+    A0 = Component.xor_n(a, b, c)
     A = a^b^c
     A1 = a^(b^c)
+
+    B0 = Component.nxor_n(a, b, c)
     B = a.nxor(b).nxor(c)
     B1 = a.nxor(b.nxor(c))
     C = (a^b).nxor(c)
@@ -378,7 +405,7 @@ if __name__ == "__main__":
     D = (a.nxor(b))^c
     D1 = (a.nxor(b^c))
 
-    Simulator(A, A1, B, B1, C, C1, D, D1, variableSorted=True).printTransposedTruthTable()
+    Simulator(A0, A, A1, B0, B, B1, C, C1, D, D1, variableSorted=True).printTransposedTruthTable()
 
     print()
 
@@ -387,7 +414,7 @@ if __name__ == "__main__":
     print()
 
     # n 변수에서 xor과 nxor 인지 확인
-    vals = [a, b, c, d, e, f, g, h, i, j, k, l]
+    vals = [Variable(l) for l in "abcdefghijklmn"]
     for i in range(2, len(vals) + 1):
         curV = vals[:i]
         F1 = Component.xor_n(*curV)
