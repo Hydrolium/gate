@@ -210,6 +210,8 @@ class Expression(Component):
 
         return tuple(res)
     
+    
+    
 class TestResult:
     def __init__(self, prod, values):
         self.prod = prod
@@ -282,9 +284,6 @@ class Simulator:
     @classmethod
     def findCase(cls, *expressions, variableSequence=None, variableSorted=False, toTuple=False):
 
-        if not Simulator._isUsingSameVariables(expressions):
-            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
-
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
         equalCases = []
@@ -297,13 +296,11 @@ class Simulator:
             else:
                 differentCases.append(prod)
 
-        return tuple(equalCases), tuple(differentCases)
+        return {"same": tuple(equalCases), "different": tuple(differentCases), "variables": test.usedVariables}
     
     @classmethod
     def isEqual(cls, *expressions, variableSequence=None, variableSorted=False):
 
-        if not Simulator._isUsingSameVariables(expressions):
-            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
         test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
         return all(len(set(res.values)) == 1 for res in test.testResults)
@@ -311,14 +308,14 @@ class Simulator:
     @classmethod
     def isComplement(cls, expression0, expression1, variableSequence=None, variableSorted=False):
 
-        if not Simulator._isUsingSameVariables((expression0, expression1)):
-            raise ValueError("같은 변수를 사용한 수식들만 비교할 수 있습니다.")
-
         test = cls(expression0, expression1, variableSequence=variableSequence, variableSorted=variableSorted)
         return all(len(set(res.values)) == 2 for res in test.testResults)
 
 
     def __init__(self, *expressions, variableSequence=None, variableSorted=False):
+
+        expressions = [Expression(Operator("", lambda x: x, lambda x: str(x)), Component._toComponent(exp)) for exp in expressions]
+
         self.expressions = expressions
 
         self.labels = [expression.label for expression in expressions]
@@ -384,44 +381,54 @@ if __name__ == "__main__":
 
     O = Constant("1", 1)
 
-    X = a.nand(b.nand(c))
-    Y = (a.nand(b)).nand(c)
-    Simulator.printTruthTable(X, Y, variableSorted=True)
+    # X = a.nand(b.nand(c))
+    # Y = (a.nand(b)).nand(c)
+    # Simulator.printTruthTable(X, Y, variableSorted=True)
 
-    print()
+    # print()
 
-    A = a^b^c
-    A1 = a^(b^c)
-    B = a.nxor(b).nxor(c)
-    B1 = a.nxor(b.nxor(c))
-    C = (a^b).nxor(c)
-    C1 = a^(b.nxor(c))
-    D = (a.nxor(b))^c
-    D1 = (a.nxor(b^c))
+    # A = a^b^c
+    # A1 = a^(b^c)
+    # B = a.nxor(b).nxor(c)
+    # B1 = a.nxor(b.nxor(c))
+    # C = (a^b).nxor(c)
+    # C1 = a^(b.nxor(c))
+    # D = (a.nxor(b))^c
+    # D1 = (a.nxor(b^c))
 
-    Simulator.printTruthTable(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+    # Simulator.printTruthTable(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
 
-    print()
+    # print()
 
-    Simulator.printTransposedTruthTable(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
+    # Simulator.printTransposedTruthTable(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
 
-    print()
+    # print()
 
-    # n 변수에서 xor과 nxor 인지 확인
-    vals = [a, b, c, d, e, f, g, h, i, j, k, l]
-    for i in range(2, len(vals) + 1):
-        curV = vals[:i]
-        F1 = Component.xor_n(*curV)
-        F2 = curV[0]
-        for v in curV[1:]:
-            F2 = F2.nxor(v)
+    # # n 변수에서 xor과 nxor 인지 확인
+    # vals = [a, b, c, d, e, f, g, h, i, j, k, l]
+    # for i in range(2, len(vals) + 1):
+    #     curV = vals[:i]
+    #     F1 = Component.xor_n(*curV)
+    #     F2 = curV[0]
+    #     for v in curV[1:]:
+    #         F2 = F2.nxor(v)
 
-        print(f"(변수 수) = {len(curV)} 에서 XOR과 NXOR 연산은 ", end="")
-        if Simulator.isEqual(F1, F2):
-            print("같음.")
-        if Simulator.isComplement(F1, F2):
-            print("보수임.")
+    #     print(f"(변수 수) = {len(curV)} 에서 XOR과 NXOR 연산은 ", end="")
+    #     if Simulator.isEqual(F1, F2):
+    #         print("같음.")
+    #     if Simulator.isComplement(F1, F2):
+    #         print("보수임.")
 
-    print(Component.and_n(1, 1, a))
+    # print(Component.and_n(1, 1, a))
 
-    print()
+    # print()
+
+    X = a + b
+    Y = c + d
+
+    Simulator.printTruthTable(X, 1)
+
+    ca = Simulator.findCase(X, 1, toTuple=True)
+    print(ca["same"])
+    print(ca["different"])
+    print(ca["variables"])
