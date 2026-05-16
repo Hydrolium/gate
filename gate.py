@@ -19,13 +19,21 @@ NXOR = Operator('NXOR', lambda x, y: int(bool(x) == bool(y)), lambda x, y: f"({x
 NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
 
 class Component:
-    def __init__(self, label):
+    def __init__(self, label, usedVariables=tuple()):
         self._label = label
+        self._usedVariables = usedVariables
+
+    @property
+    def usedVariables(self):
+        return self._usedVariables
 
     @property
     def label(self):
         return self._label
     
+    def __call__(self, *args, keepLabels=False, **kargs):
+        raise NotImplementedError("Component를 상속한 클래스는 __call__() 매소드를 구현해야 합니다.")
+
     def __str__(self):
         return self.label
 
@@ -103,115 +111,111 @@ class Component:
     @staticmethod
     def _toComponents(values):
         return tuple(Component._toComponent(v) for v in values)
-    
-class VariableComponent(Component):
-    pass
 
 class ConstComponent(Component):
     def __init__(self, label, value):
         super().__init__(label)
-        self._value = int(value)
+        self._value = int(bool(value))
     
     @property
     def value(self):
         return self._value
 
+    def __call__(self, *args, keepLabels=False, **kargs):
+        return self
+
     def __str__(self):
+        return str(self.value)
+    
+    def __repr__(self):
+        return f"{self.__class__.__name__}(label={self.label}, value={self.value})"
+    
+    def toEquationStyle(self):
         return f"{self.label} = {self.value}"
 
-class Variable(VariableComponent):
-    def __repr__(self):
-        return f"Variable(label={self.label})"
-
 class Constant(ConstComponent):
-    def __repr__(self):
-        return f"Constant(label={self.label}, value={self.value})"
+
+    def __init__(self, label, value):
+        if len(label) != 1:
+            raise ValueError("Variable의 label은 길이가 1이여야합니다.")
+        
+        super().__init__(label, value)
 
 class EvaluatedResult(ConstComponent):
-    def __repr__(self):
-        return f"Evaluated(label={self.label}, value={self.value})"
+    pass
 
-class Expression(Component):
-    def __init__(self, operator, *terms):
-        super().__init__(None)
+class VariableComponent(Component):
 
-        self.terms = terms
-        self.operator = operator
-
-        self.usedVariables = self._combineUsedVariables(terms)
-
-    def __str__(self):
-        return f"F({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
-
-    def __repr__(self):
-        return f"Expression(label={self.label})"
-
-    @property
-    def label(self):
-        return self.operator.createLabel(*(term.label for term in self.terms))
-    
-    @property
-    def usedVariables(self):
-        return self._usedVariables
-    
-    @usedVariables.setter
-    def usedVariables(self, usedVariables):
-        self._usedVariables = tuple(dict.fromkeys(usedVariables))
-
-    # requiedVariables: a, b, c
-    # F(1, 0, 1)
-    # F(1, 0, 1, 1): 4번째 1은 필요없으므로 무시됨.
-    # F(a=1, b=0, c=1)
-    # F(a=1, b=0, c=1, d=1): d 는 필요한 변수 목록에 없으므로 무시됨.
-    # F(1, 0, 1, keepLabels=True)
-    # F(a=1, b=0, c=1, keepLabels=True)
-    def __call__(self, *args, keepLabels=False, **kargs):
-
+    def _toValuesDict(self, args, kargs):
         if args and kargs:
             raise TypeError("위치 인자와 키워드 인자를 동시 사용할 수 없습니다. F(0, 0) 또는 F(a=0, b=0) 형태로 통일이 필요합니다.")
 
         if args:
-            valuesDict = dict(zip((v.label for v in self.usedVariables), args))
-        elif kargs:
-            valuesDict = kargs
+            return dict(zip((v.label for v in self.usedVariables), args))
+        return kargs
+
+    @staticmethod
+    def _resolve(component, valuesDict, keepLabels):
+        if isinstance(component, Expression):
+            return component(**valuesDict, keepLabels=keepLabels)
+        elif isinstance(component, ConstComponent):
+            return component
+        elif isinstance(component, Variable):
+            if component.label not in valuesDict:
+                return component
+            else:
+                val = valuesDict[component.label]
+                label = component.label if keepLabels else str(val)
+                return Constant(label, val)
+
+class Variable(VariableComponent):
+
+    def __init__(self, label):
+        if len(label) != 1:
+            raise ValueError("Variable의 label은 길이가 1이여야합니다.")
+        
+        super().__init__(label, (self, ))
+
+    def __repr__(self):
+        return f"Variable(label={self.label})"
+    
+    def __call__(self, *args, keepLabels=False, **kargs):
+        valuesDict = self._toValuesDict(args, kargs)
+
+        return self._resolve(self, valuesDict, keepLabels)
+
+class Expression(VariableComponent):
+    def __init__(self, operator, *terms):
+        super().__init__(None, tuple(dict.fromkeys(var for com in terms for var in com.usedVariables)))
+
+        self.operator = operator
+        self.terms = terms
+
+    def __repr__(self):
+        return f"Expression(label={self.label}, variables={', '.join(v.label for v in self.usedVariables)})"
+
+    @property
+    def label(self):
+        return self.operator.createLabel(*(term.label for term in self.terms))
+
+    def __call__(self, *args, keepLabels=False, **kargs):
+
+        valuesDict = self._toValuesDict(args, kargs)
 
         terms = [self._resolve(term, valuesDict, keepLabels) for term in self.terms]
 
         if any(v.label not in valuesDict for v in self.usedVariables):
             return Expression(self.operator, *terms)
-        
+
         return EvaluatedResult(
             self.operator.createLabel(*(term.label for term in terms)),
             self.operator(*(term.value for term in terms))
         )
-    
-    @staticmethod
-    def _resolve(component, values, keepLabels):
-        if isinstance(component, Expression):
-            return component(**values, keepLabels=keepLabels)
-        elif isinstance(component, ConstComponent):
-            return component
-        elif isinstance(component, Variable):
-            if component.label not in values:
-                return component
-            else:
-                val = values[component.label]
-                label = component.label if keepLabels else str(val)
-                return Constant(label, val)
 
-    @staticmethod
-    def _combineUsedVariables(components):
-        res = []
-        for component in components:
-            if isinstance(component, Variable):
-                res.append(component)
-            elif isinstance(component, Expression):
-                res.extend(component.usedVariables)
+    def toFuncStyle(self, funcName="F"):
+        return f"{funcName}({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
 
-        return tuple(res)
-    
-    
-    
+
 class TestResult:
     def __init__(self, prod, values):
         self.prod = prod
@@ -224,110 +228,23 @@ class TestResult:
         return f"TestResult(prod={self.prod}, values={self.values})"
 
 class Simulator:
-    
-    @classmethod
-    def printTruthTable(cls, *expressions, variableSequence=None, variableSorted=False):
-        
-        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
 
-        widths = []
+    def __init__(self, *components, variableSequence=None, variableSorted=False):
 
-        vl = cls._createVariableLabel(test.usedVariables)
-        print(vl, end=" ")
+        components = [Component._toComponent(exp) for exp in components]
 
-        widths.append(len(vl))
+        self.components = components
 
-        for label in test.labels:
-            print(label, end=" ")
-            widths.append(len(label))
-
-        print()
-
-        for result in test.testResults:
-            cls._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
-            for value, width in zip(result.values, widths[1:]):
-                cls._printCell(value, width)
-            print()
-
-        return test
-
-    @classmethod
-    def printTransposedTruthTable(cls, *expressions, variableSequence=None, variableSorted=False):
-        
-        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
-        
-        widths = []
-
-        vl = cls._createVariableLabel(test.usedVariables)
-        width = max(len(lab) for lab in [cls._createVariableLabel(test.usedVariables), *test.labels])
-        
-        cls._printCell(vl, width)
-
-        widths.append(width)
-
-        for prod in test.prods:
-            cell = "(" + ", ".join(str(v) for v in prod.values()) + ")"
-            print(cell, end=" ")
-            widths.append(len(cell))
-
-        print()
-
-        for i, label in enumerate(test.labels):
-            cls._printCell(label, widths[0])
-
-            for result, width in zip(test.testResults, widths[1:]):
-                cls._printCell(result.values[i], width)
-            print()
-
-        return test
-    
-    @classmethod
-    def findCase(cls, *expressions, variableSequence=None, variableSorted=False, toTuple=False):
-
-        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
-
-        equalCases = []
-        differentCases = []
-
-        for res in test.testResults:
-            prod = tuple(res.prod.values()) if toTuple else res.prod
-            if len(set(res.values)) == 1:
-                equalCases.append(prod)
-            else:
-                differentCases.append(prod)
-
-        return {"same": tuple(equalCases), "different": tuple(differentCases), "variables": test.usedVariables}
-    
-    @classmethod
-    def isEqual(cls, *expressions, variableSequence=None, variableSorted=False):
-
-        test = cls(*expressions, variableSequence=variableSequence, variableSorted=variableSorted)
-
-        return all(len(set(res.values)) == 1 for res in test.testResults)
-
-    @classmethod
-    def isComplement(cls, expression0, expression1, variableSequence=None, variableSorted=False):
-
-        test = cls(expression0, expression1, variableSequence=variableSequence, variableSorted=variableSorted)
-        return all(len(set(res.values)) == 2 for res in test.testResults)
-
-
-    def __init__(self, *expressions, variableSequence=None, variableSorted=False):
-
-        expressions = [Expression(Operator("", lambda x: x, lambda x: str(x)), Component._toComponent(exp)) for exp in expressions]
-
-        self.expressions = expressions
-
-        self.labels = [expression.label for expression in expressions]
+        self.labels = [expression.label for expression in components]
         self.usedVariables = tuple(dict.fromkeys(
-            var for exp in expressions for var in exp.usedVariables
+            var for exp in components for var in exp.usedVariables
         ))
 
         if variableSequence is not None:
             if set(self.usedVariables) != set(variableSequence):
                 raise ValueError("전달된 variableSequence가 수식의 변수 목록과 일치하지 않습니다.")
             self.usedVariables = variableSequence
-        
+
         if variableSorted:
             self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
 
@@ -335,22 +252,85 @@ class Simulator:
         self.testResults = self._test()
 
     def _makeProds(self):
-        def getProdWithVariable(variable, prev):
-            if isinstance(variable, VariableComponent):
-                return tuple([{**prev, variable.label: val} for val in (0, 1)])
-            elif isinstance(variable, ConstComponent):
-                return ({**prev, variable.label: variable.value}, )
-            return (prev,)
-
         prod = ({}, )
         for variable in self.usedVariables:
-            prod = [pwv for p in prod for pwv in getProdWithVariable(variable, p)]
+            prod = [pwv for p in prod for pwv in [{**p, variable.label: val} for val in (0, 1)]]
 
         return tuple(prod)
 
     def _test(self):
-        return tuple(TestResult(p, tuple(exp(**p).value for exp in self.expressions)) for p in self.prods)
+        return tuple(TestResult(p, tuple(exp(**p).value for exp in self.components)) for p in self.prods)
     
+    def printTruthTable(self):
+
+        widths = []
+
+        vl = self._createVariableLabel(self.usedVariables)
+        print(vl, end=" ")
+
+        widths.append(len(vl))
+
+        for label in self.labels:
+            print(label, end=" ")
+            widths.append(len(label))
+
+        print()
+
+        for result in self.testResults:
+            self._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
+            for value, width in zip(result.values, widths[1:]):
+                self._printCell(value, width)
+            print()
+
+    def printTransposedTruthTable(self):
+        
+        widths = []
+
+        vl = self._createVariableLabel(self.usedVariables)
+        width = max(len(lab) for lab in [vl, *self.labels])
+        
+        self._printCell(vl, width)
+
+        widths.append(width)
+
+        for prod in self.prods:
+            cell = "(" + ", ".join(str(v) for v in prod.values()) + ")"
+            print(cell, end=" ")
+            widths.append(len(cell))
+
+        print()
+
+        for i, label in enumerate(self.labels):
+            self._printCell(label, widths[0])
+
+            for result, width in zip(self.testResults, widths[1:]):
+                self._printCell(result.values[i], width)
+            print()
+    
+
+    def findCase(self, toTuple=False):
+
+        equalCases = []
+        differentCases = []
+
+        for res in self.testResults:
+            prod = tuple(res.prod.values()) if toTuple else res.prod
+            if len(set(res.values)) == 1:
+                equalCases.append(prod)
+            else:
+                differentCases.append(prod)
+
+        return {"same": tuple(equalCases), "different": tuple(differentCases), "variables": self.usedVariables}
+    
+    def isEqual(self):
+        return all(len(set(res.values)) == 1 for res in self.testResults)
+
+    def isComplement(self):
+        if(len(self.components) != 2):
+            raise TypeError("두 요소를 가진 Simulator만 보수 판정을 할 수 있습니다.")
+
+        return all(len(set(res.values)) == 2 for res in self.testResults)
+
     @staticmethod
     def _printCell(s, width):
         print(f"{str(s):>{width}}", end = " ")
@@ -379,56 +359,63 @@ if __name__ == "__main__":
     k = Variable("k")
     l = Variable("l")
 
-    O = Constant("1", 1)
+    O = Constant("O", 0)
 
     # X = a.nand(b.nand(c))
     # Y = (a.nand(b)).nand(c)
     # Simulator.printTruthTable(X, Y, variableSorted=True)
 
-    # print()
+    Simulator(O).printTruthTable()
 
-    # A = a^b^c
-    # A1 = a^(b^c)
-    # B = a.nxor(b).nxor(c)
-    # B1 = a.nxor(b.nxor(c))
-    # C = (a^b).nxor(c)
-    # C1 = a^(b.nxor(c))
-    # D = (a.nxor(b))^c
-    # D1 = (a.nxor(b^c))
+    print()
 
-    # Simulator.printTruthTable(A,A1,B,B1,C,C1,D,D1, variableSorted=True)
+    A = a^b^c
+    A1 = a^(b^c)
+    B = a.nxor(b).nxor(c)
+    B1 = a.nxor(b.nxor(c))
+    C = (a^b).nxor(c)
+    C1 = a^(b.nxor(c))
+    D = (a.nxor(b))^c
+    D1 = (a.nxor(b^c))
 
-    # print()
+    Simulator(A, A1, B, B1, C, C1, D, D1, variableSorted=True).printTransposedTruthTable()
 
-    # Simulator.printTransposedTruthTable(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c))
+    print()
 
-    # print()
+    Simulator(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c)).printTransposedTruthTable()
 
-    # # n 변수에서 xor과 nxor 인지 확인
-    # vals = [a, b, c, d, e, f, g, h, i, j, k, l]
-    # for i in range(2, len(vals) + 1):
-    #     curV = vals[:i]
-    #     F1 = Component.xor_n(*curV)
-    #     F2 = curV[0]
-    #     for v in curV[1:]:
-    #         F2 = F2.nxor(v)
+    print()
 
-    #     print(f"(변수 수) = {len(curV)} 에서 XOR과 NXOR 연산은 ", end="")
-    #     if Simulator.isEqual(F1, F2):
-    #         print("같음.")
-    #     if Simulator.isComplement(F1, F2):
-    #         print("보수임.")
+    # n 변수에서 xor과 nxor 인지 확인
+    vals = [a, b, c, d, e, f, g, h, i, j, k, l]
+    for i in range(2, len(vals) + 1):
+        curV = vals[:i]
+        F1 = Component.xor_n(*curV)
+        F2 = curV[0]
+        for v in curV[1:]:
+            F2 = F2.nxor(v)
 
-    # print(Component.and_n(1, 1, a))
+        print(f"(변수 수) = {len(curV):<2} 에서 XOR과 NXOR 연산은 ", end="")
+        simulator = Simulator(F1, F2)
+        if simulator.isEqual():
+            print("같음.")
+        if simulator.isComplement():
+            print("보수임.")
 
-    # print()
+    print(Component.and_n(1, 1, 1).toFuncStyle())
+    print(Component.and_n(1, 1, a).toFuncStyle())
+    print(Component.and_n(1, 1, 1)())
+
+    print()
 
     X = a + b
-    Y = c + d
 
-    Simulator.printTruthTable(X, 1)
+    simulator = Simulator(X, O)
 
-    ca = Simulator.findCase(X, 1, toTuple=True)
-    print(ca["same"])
-    print(ca["different"])
-    print(ca["variables"])
+    simulator.printTruthTable()
+
+    ca = simulator.findCase(toTuple=True)
+    print("사용된 변수들:", "(" + ", ".join(v.label for v in ca["variables"]) + ")")
+
+    print(X.toFuncStyle("F"), "=", O, "이 되는 경우:", ca["same"])
+    print(X.toFuncStyle("G"), "≠", O, "이 되는 경우:", ca["different"])
