@@ -146,12 +146,7 @@ class ConstComponent(Component):
         return f"{self.label} = {self.value}"
 
 class Constant(ConstComponent):
-
-    def __init__(self, label, value):
-        if len(label) != 1:
-            raise ValueError("Variable의 label은 길이가 1이여야합니다.")
-        
-        super().__init__(label, value)
+    pass
 
 class EvaluatedResult(ConstComponent):
     pass
@@ -183,9 +178,6 @@ class VariableComponent(Component):
 class Variable(VariableComponent):
 
     def __init__(self, label):
-        if len(label) != 1:
-            raise ValueError("Variable의 label은 길이가 1이여야합니다.")
-        
         super().__init__(label, (self, ))
 
     def __repr__(self):
