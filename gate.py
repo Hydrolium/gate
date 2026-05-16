@@ -269,11 +269,10 @@ class Simulator:
         n = len(self.usedVariables)
         prod = []
         for i in range(1 << n):
-            row = {labels[j]: (i >> (n - 1 -j )) & 1 for j in range(n)}
-            prod.append(row)
+            prod.append({labels[j]: (i >> (n - 1 -j )) & 1 for j in range(n)})
 
         return tuple(prod)
-                
+
     def _test(self):
         return tuple(
             TestResult(
