@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
-def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U=None) -> U:
+def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U = None) -> U:
     it = iter(iterable)
     if initial is not None:
         acc = initial
@@ -10,7 +10,7 @@ def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U=No
         try:
             acc = next(it)
         except StopIteration:
-            raise TypeError("비어있는 iterable에는 initial이 필요합니다.") from None
+            raise TypeError("비어있는 iterable에는 initial(초깃 값)이 필요합니다.") from None
 
     for v in it:
         acc = func(acc, v)
