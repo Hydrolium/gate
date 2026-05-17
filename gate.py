@@ -1,18 +1,28 @@
-def reduce(func, iterable, inital=None):
+from __future__ import annotations
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+
+def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U=None) -> U:
     it = iter(iterable)
-    acc = inital or next(it)
+    if initial is not None:
+        acc = initial
+    else:
+        try:
+            acc = next(it)
+        except StopIteration:
+            raise TypeError("비어있는 iterable에는 initial이 필요합니다.") from None
 
     for v in it:
         acc = func(acc, v)
     return acc
 
 class Operator:
-    def __init__(self, name, handler, createLabel):
+    def __init__(self, name: str, handler: Callable[..., int], createLabel: Callable[..., str]):
         self.name = name
         self.handler = handler
         self.createLabel = createLabel
 
-    def __call__(self, *args):
+    def __call__(self, *args: int) -> int:
         return self.handler(*args)
 
 AND = Operator('AND', lambda *x: int(all(x)), lambda *x: f"({'·'.join(x)})")
@@ -27,122 +37,122 @@ NXOR = Operator('NXOR', lambda *x: int(not reduce(lambda x1, x2: x1 != x2, x)), 
 NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
 
 class Component:
-    def __init__(self, label, usedVariables=tuple()):
+    def __init__(self, label: str, usedVariables: tuple[Variable, ...] | None = None) -> None:
         self._label = label
-        self._usedVariables = usedVariables
+        self._usedVariables = usedVariables or tuple()
 
     @property
-    def usedVariables(self):
+    def usedVariables(self) -> tuple[Variable, ...]:
         return self._usedVariables
 
     @property
-    def label(self):
+    def label(self) -> str:
         return self._label
     
-    def __call__(self, *args, keepLabels=False, **kargs):
+    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
         raise NotImplementedError("Component를 상속한 클래스는 __call__() 매소드를 구현해야 합니다.")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.label
 
-    def __invert__(self):
+    def __invert__(self) -> Expression:
         return Expression(NOT, self)
 
-    def __mul__(self, other):
+    def __mul__(self, other: Component | int) -> Expression:
         return Expression(AND, self, self._toComponent(other))
     
-    def __rmul__(self, other):
+    def __rmul__(self, other: Component | int) -> Expression:
         return Expression(AND, self._toComponent(other), self)
     
-    def __and__(self, other):
+    def __and__(self, other: Component | int) -> Expression:
         return self.__mul__(other)
     
-    def __rand__(self, other):
+    def __rand__(self, other: Component | int) -> Expression:
         return self.__rmul__(other)
     
-    def __add__(self, other):
+    def __add__(self, other: Component | int) -> Expression:
         return Expression(OR, self, self._toComponent(other))
     
-    def __radd__(self, other):
+    def __radd__(self, other: Component | int) -> Expression:
         return Expression(OR, self._toComponent(other), self)
 
-    def __or__(self, other):
+    def __or__(self, other: Component | int) -> Expression:
         return self.__add__(other)
 
-    def __ror__(self, other):
+    def __ror__(self, other: Component | int) -> Expression:
         return self.__radd__(other)
     
-    def __xor__(self, other):
+    def __xor__(self, other: Component | int) -> Expression:
         return Expression(XOR, self, self._toComponent(other))
 
-    def __rxor__(self, other):
+    def __rxor__(self, other: Component | int) -> Expression:
         return Expression(XOR, self._toComponent(other), self)
 
-    def nand(self, other):
+    def nand(self, other: Component | int) -> Expression:
         return Expression(NAND, self, self._toComponent(other))
     
-    def nor(self, other):
+    def nor(self, other: Component | int) -> Expression:
         return Expression(NOR, self._toComponent(other))
     
-    def nxor(self, other):
+    def nxor(self, other: Component | int) -> Expression:
         return Expression(NXOR, self, self._toComponent(other))
     
     @staticmethod
-    def and_n(*components):
+    def and_n(*components: Component | int) -> Expression:
         return Expression(AND, *Component._toComponents(components))
 
     @staticmethod
-    def nand_n(*components):
+    def nand_n(*components: Component | int) -> Expression:
         return Expression(NAND, *Component._toComponents(components))
     
     @staticmethod
-    def or_n(*components):
+    def or_n(*components: Component | int) -> Expression:
         return Expression(OR, *Component._toComponents(components))
 
     @staticmethod
-    def nor_n(*components):
+    def nor_n(*components: Component | int) -> Expression:
         return Expression(NOR, *Component._toComponents(components))
     
     @staticmethod
-    def xor_n(*components):
+    def xor_n(*components: Component | int) -> Expression:
         return Expression(XOR, *Component._toComponents(components))
     
     @staticmethod
-    def nxor_n(*components):
+    def nxor_n(*components: Component | int) -> Expression:
         return Expression(NXOR, *Component._toComponents(components))
 
     @staticmethod
-    def _toComponent(value):
+    def _toComponent(value: Component | int) -> Component:
         if isinstance(value, int):
             return Constant(str(int(bool(value))), int(bool(value)))
         elif isinstance(value, Component):
             return value
         
-        raise TypeError(f"지원하지 않는 타입입니다: {type(value).__name__}. 'int' 또는 'Component' 타입만 가능합니다.")
+        raise TypeError(f"지원하지 않는 타입입니다: {type(value).__name__}. 'int' 또는 Component 타입만 가능합니다.")
     
     @staticmethod
-    def _toComponents(values):
+    def _toComponents(values: Iterable[Component | int]) -> tuple[Component, ...]:
         return tuple(Component._toComponent(v) for v in values)
 
 class ConstComponent(Component):
-    def __init__(self, label, value):
+    def __init__(self, label: str, value: int) -> None:
         super().__init__(label)
         self._value = int(bool(value))
     
     @property
-    def value(self):
+    def value(self) -> int:
         return self._value
 
-    def __call__(self, *args, keepLabels=False, **kargs):
+    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
         return self
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.value)
     
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}(label={self.label}, value={self.value})"
     
-    def toEquationStyle(self):
+    def toEquationStyle(self) -> str:
         return f"{self.label} = {self.value}"
 
 class Constant(ConstComponent):
@@ -153,7 +163,7 @@ class EvaluatedResult(ConstComponent):
 
 class VariableComponent(Component):
 
-    def _toValuesDict(self, args, kargs):
+    def _toValuesDict(self, args: tuple[int, ...], kargs: dict[str, int]) -> dict[str, int]:
         if args and kargs:
             raise TypeError("위치 인자와 키워드 인자를 동시 사용할 수 없습니다. F(0, 0) 또는 F(a=0, b=0) 형태로 통일이 필요합니다.")
 
@@ -162,7 +172,7 @@ class VariableComponent(Component):
         return kargs
 
     @staticmethod
-    def _resolve(component, valuesDict, keepLabels):
+    def _resolve(component: Component, valuesDict: dict[str, int], keepLabels: bool) -> Component:
         if isinstance(component, Expression):
             return component(**valuesDict, keepLabels=keepLabels)
         elif isinstance(component, ConstComponent):
@@ -177,32 +187,32 @@ class VariableComponent(Component):
 
 class Variable(VariableComponent):
 
-    def __init__(self, label):
+    def __init__(self, label) -> None:
         super().__init__(label, (self, ))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Variable(label={self.label})"
     
-    def __call__(self, *args, keepLabels=False, **kargs):
+    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
         valuesDict = self._toValuesDict(args, kargs)
 
         return self._resolve(self, valuesDict, keepLabels)
 
 class Expression(VariableComponent):
-    def __init__(self, operator, *terms):
+    def __init__(self, operator: Operator, *terms: Component) -> None:
         super().__init__(None, tuple(dict.fromkeys(var for com in terms for var in com.usedVariables)))
 
         self.operator = operator
         self.terms = terms
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Expression(label={self.label}, variables={', '.join(v.label for v in self.usedVariables)})"
 
     @property
-    def label(self):
+    def label(self) -> str:
         return self.operator.createLabel(*(term.label for term in self.terms))
 
-    def __call__(self, *args, keepLabels=False, **kargs):
+    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
 
         valuesDict = self._toValuesDict(args, kargs)
 
@@ -216,24 +226,30 @@ class Expression(VariableComponent):
             self.operator(*(term.value for term in terms))
         )
 
-    def toFuncStyle(self, funcName="F"):
+    def toFuncStyle(self, funcName="F") -> str:
         return f"{funcName}({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
 
 
 class TestResult:
-    def __init__(self, prod, values):
+    def __init__(self, prod: dict[str, int], values: tuple[int, ...]) -> None:
         self.prod = prod
         self.values = values
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{tuple(self.prod.values())} {' | '.join(str(v) for v in self.values)}"
     
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"TestResult(prod={self.prod}, values={self.values})"
+    
+@dataclass(frozen=True)
+class ComparisonResult:
+    same: tuple[tuple[int] | dict[str, int], ...]
+    different: tuple[tuple[int] | dict[str, int], ...]
+    variables: tuple[Variable, ...]
 
 class Simulator:
 
-    def __init__(self, *components, variableSequence=None, variableSorted=False):
+    def __init__(self, *components: Component | int, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
 
         components = [Component._toComponent(exp) for exp in components]
 
@@ -255,7 +271,7 @@ class Simulator:
         self.prods = self._makeProds()
         self.testResults = self._test()
 
-    def _makeProds(self):
+    def _makeProds(self) -> tuple[dict[str, int]]:
         labels = [v.label for v in self.usedVariables]
 
         n = len(self.usedVariables)
@@ -265,7 +281,7 @@ class Simulator:
 
         return tuple(prod)
 
-    def _test(self):
+    def _test(self) -> tuple[TestResult]:
         return tuple(
             TestResult(
                 p, tuple(
@@ -276,7 +292,7 @@ class Simulator:
             for p in self.prods
         )
     
-    def printTruthTable(self):
+    def printTruthTable(self) -> None:
 
         widths = []
 
@@ -297,7 +313,7 @@ class Simulator:
                 self._printCell(value, width)
             print()
 
-    def printTransposedTruthTable(self):
+    def printTransposedTruthTable(self) -> None:
         
         widths = []
 
@@ -323,7 +339,7 @@ class Simulator:
             print()
     
 
-    def findCase(self, toTuple=False):
+    def findCase(self, toTuple: bool = False) -> ComparisonResult:
 
         equalCases = []
         differentCases = []
@@ -335,26 +351,26 @@ class Simulator:
             else:
                 differentCases.append(prod)
 
-        return {"same": tuple(equalCases), "different": tuple(differentCases), "variables": self.usedVariables}
+        return Component(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
     
-    def isEqual(self):
+    def isEqual(self) -> bool:
         return all(len(set(res.values)) == 1 for res in self.testResults)
 
-    def isComplement(self):
+    def isComplement(self) -> bool:
         if(len(self.components) != 2):
             raise TypeError("두 요소를 가진 Simulator만 보수 판정을 할 수 있습니다.")
 
         return all(len(set(res.values)) == 2 for res in self.testResults)
 
     @staticmethod
-    def _printCell(s, width):
+    def _printCell(s, width) -> None:
         print(f"{str(s):>{width}}", end = " ")
 
     @staticmethod
-    def _createVariableLabel(usedVariables):
+    def _createVariableLabel(usedVariables: Iterable[Variable]) -> str:
         return f"({', '.join(v.label for v in usedVariables)})"
     
     @staticmethod
-    def _isUsingSameVariables(expressions):
+    def _isUsingSameVariables(expressions: Sequence[Component]) -> bool:
         variables = set(expressions[0].usedVariables)
         return all(set(exp.usedVariables) == variables for exp in expressions)
