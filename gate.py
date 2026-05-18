@@ -1,8 +1,9 @@
 from __future__ import annotations
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
 
-def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U = None) -> U:
+def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U | None = None) -> U:
     it = iter(iterable)
     if initial is not None:
         acc = initial
@@ -31,10 +32,12 @@ NAND = Operator('NAND', lambda *x: int(not all(x)), lambda *x: f"({'·'.join(x)}
 OR = Operator('OR', lambda *x: int(any(x)), lambda *x: f"({'+'.join(x)})")
 NOR = Operator('NOR', lambda *x: int(not any(x)), lambda *x: f"({'+'.join(x)})'")
 
-XOR = Operator('XOR', lambda *x: int(reduce(lambda x1, x2: x1 != x2, x)), lambda *x: f"({'⊕ '.join(x)})")
-NXOR = Operator('NXOR', lambda *x: int(not reduce(lambda x1, x2: x1 != x2, x)), lambda *x: f"({x[0]}⊙ {x[1]})" if len(x) == 2 else f"({'⊕ '.join(x)})'")
+XOR = Operator('XOR', lambda *x: int(reduce(lambda x1, x2: x1 ^ x2, x)), lambda *x: f"({'⊕ '.join(x)})")
+NXOR = Operator('NXOR', lambda *x: int(1 - reduce(lambda x1, x2: x1 ^ x2, x)), lambda *x: f"({x[0]}⊙ {x[1]})" if len(x) == 2 else f"({'⊕ '.join(x)})'")
 
 NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
+
+type VariableProd = dict[str, int]
 
 class Component:
     def __init__(self, label: str, usedVariables: tuple[Variable, ...] | None = None) -> None:
@@ -59,10 +62,10 @@ class Component:
         return Expression(NOT, self)
 
     def __mul__(self, other: Component | int) -> Expression:
-        return Expression(AND, self, self._toComponent(other))
+        return Expression(AND, self, other)
     
     def __rmul__(self, other: Component | int) -> Expression:
-        return Expression(AND, self._toComponent(other), self)
+        return Expression(AND, other, self)
     
     def __and__(self, other: Component | int) -> Expression:
         return self.__mul__(other)
@@ -71,10 +74,10 @@ class Component:
         return self.__rmul__(other)
     
     def __add__(self, other: Component | int) -> Expression:
-        return Expression(OR, self, self._toComponent(other))
+        return Expression(OR, self, other)
     
     def __radd__(self, other: Component | int) -> Expression:
-        return Expression(OR, self._toComponent(other), self)
+        return Expression(OR, other, self)
 
     def __or__(self, other: Component | int) -> Expression:
         return self.__add__(other)
@@ -83,43 +86,43 @@ class Component:
         return self.__radd__(other)
     
     def __xor__(self, other: Component | int) -> Expression:
-        return Expression(XOR, self, self._toComponent(other))
+        return Expression(XOR, self, other)
 
     def __rxor__(self, other: Component | int) -> Expression:
-        return Expression(XOR, self._toComponent(other), self)
+        return Expression(XOR, other, self)
 
     def nand(self, other: Component | int) -> Expression:
-        return Expression(NAND, self, self._toComponent(other))
+        return Expression(NAND, self, other)
     
     def nor(self, other: Component | int) -> Expression:
-        return Expression(NOR, self._toComponent(other))
+        return Expression(NOR, other)
     
     def nxor(self, other: Component | int) -> Expression:
-        return Expression(NXOR, self, self._toComponent(other))
+        return Expression(NXOR, self, other)
     
     @staticmethod
     def and_n(*components: Component | int) -> Expression:
-        return Expression(AND, *Component._toComponents(components))
+        return Expression(AND, *components)
 
     @staticmethod
     def nand_n(*components: Component | int) -> Expression:
-        return Expression(NAND, *Component._toComponents(components))
+        return Expression(NAND, *components)
     
     @staticmethod
     def or_n(*components: Component | int) -> Expression:
-        return Expression(OR, *Component._toComponents(components))
+        return Expression(OR, *components)
 
     @staticmethod
     def nor_n(*components: Component | int) -> Expression:
-        return Expression(NOR, *Component._toComponents(components))
+        return Expression(NOR, *components)
     
     @staticmethod
     def xor_n(*components: Component | int) -> Expression:
-        return Expression(XOR, *Component._toComponents(components))
+        return Expression(XOR, *components)
     
     @staticmethod
     def nxor_n(*components: Component | int) -> Expression:
-        return Expression(NXOR, *Component._toComponents(components))
+        return Expression(NXOR, *components)
 
     @staticmethod
     def _toComponent(value: Component | int) -> Component:
@@ -163,7 +166,7 @@ class EvaluatedResult(ConstComponent):
 
 class VariableComponent(Component):
 
-    def _toValuesDict(self, args: tuple[int, ...], kargs: dict[str, int]) -> dict[str, int]:
+    def _toValuesDict(self, args: tuple[int, ...], kargs: VariableProd) -> VariableProd:
         if args and kargs:
             raise TypeError("위치 인자와 키워드 인자를 동시 사용할 수 없습니다. F(0, 0) 또는 F(a=0, b=0) 형태로 통일이 필요합니다.")
 
@@ -172,7 +175,7 @@ class VariableComponent(Component):
         return kargs
 
     @staticmethod
-    def _resolve(component: Component, valuesDict: dict[str, int], keepLabels: bool) -> Component:
+    def _resolve(component: Component, valuesDict: VariableProd, keepLabels: bool) -> Component:
         if isinstance(component, Expression):
             return component(**valuesDict, keepLabels=keepLabels)
         elif isinstance(component, ConstComponent):
@@ -187,7 +190,7 @@ class VariableComponent(Component):
 
 class Variable(VariableComponent):
 
-    def __init__(self, label) -> None:
+    def __init__(self, label: str) -> None:
         super().__init__(label, (self, ))
 
     def __repr__(self) -> str:
@@ -199,14 +202,16 @@ class Variable(VariableComponent):
         return self._resolve(self, valuesDict, keepLabels)
 
 class Expression(VariableComponent):
-    def __init__(self, operator: Operator, *terms: Component) -> None:
-        super().__init__(None, tuple(dict.fromkeys(var for com in terms for var in com.usedVariables)))
+    def __init__(self, operator: Operator, *terms: Component | int) -> None:
+        mappedTerms = Component._toComponents(terms)
+
+        super().__init__(None, tuple(dict.fromkeys(var for com in mappedTerms for var in com.usedVariables)))
 
         self.operator = operator
-        self.terms = terms
+        self.terms = mappedTerms
 
     def __repr__(self) -> str:
-        return f"Expression(label={self.label}, variables={', '.join(v.label for v in self.usedVariables)})"
+        return f"{self.__class__.__name__}(label={self.label}, variables=({', '.join(v.label for v in self.usedVariables)}))"
 
     @property
     def label(self) -> str:
@@ -229,9 +234,8 @@ class Expression(VariableComponent):
     def toFuncStyle(self, funcName="F") -> str:
         return f"{funcName}({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
 
-
 class TestResult:
-    def __init__(self, prod: dict[str, int], values: tuple[int, ...]) -> None:
+    def __init__(self, prod: VariableProd, values: tuple[int, ...]) -> None:
         self.prod = prod
         self.values = values
 
@@ -239,25 +243,32 @@ class TestResult:
         return f"{tuple(self.prod.values())} {' | '.join(str(v) for v in self.values)}"
     
     def __repr__(self) -> str:
-        return f"TestResult(prod={self.prod}, values={self.values})"
+        return f"{self.__class__.__name__}(prod={self.prod}, values={self.values})"
     
 @dataclass(frozen=True)
 class ComparisonResult:
-    same: tuple[tuple[int] | dict[str, int], ...]
-    different: tuple[tuple[int] | dict[str, int], ...]
+    same: tuple[VariableProd, ...]
+    different: tuple[VariableProd, ...]
+    variables: tuple[Variable, ...]
+    
+@dataclass(frozen=True)
+class ComparisonTupleResult:
+    same: tuple[tuple[int, ...], ...]
+    different: tuple[tuple[int, ...], ...]
     variables: tuple[Variable, ...]
 
 class Simulator:
 
     def __init__(self, *components: Component | int, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
 
-        components = [Component._toComponent(exp) for exp in components]
+        mappedComponents = Component._toComponents(components)
 
-        self.components = components
+        self.components: tuple[Component, ...] = mappedComponents
 
-        self.labels = [expression.label for expression in components]
-        self.usedVariables = tuple(dict.fromkeys(
-            var for exp in components for var in exp.usedVariables
+        self.labels: tuple[str, ...] = tuple(expression.label for expression in mappedComponents)
+
+        self.usedVariables: tuple[Variable, ...] = tuple(dict.fromkeys(
+            var for exp in mappedComponents for var in exp.usedVariables
         ))
 
         if variableSequence is not None:
@@ -268,10 +279,20 @@ class Simulator:
         if variableSorted:
             self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
 
-        self.prods = self._makeProds()
-        self.testResults = self._test()
+        self.prods: tuple[VariableProd, ...] = self._makeProds()
+        self.testResults: tuple[TestResult, ...] = self._test()
 
-    def _makeProds(self) -> tuple[dict[str, int]]:
+        self.case: ComparisonResult = self._findCase()
+        self.caseTuple: ComparisonResult = self._findCase(True)
+
+        self.isEqual: bool = self._isEqual()
+        
+        self.isComplement: bool | None = self._isComplement() if len(mappedComponents) == 2 else None
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(components={self.components})"
+
+    def _makeProds(self) -> tuple[VariableProd, ...]:
         labels = [v.label for v in self.usedVariables]
 
         n = len(self.usedVariables)
@@ -281,7 +302,7 @@ class Simulator:
 
         return tuple(prod)
 
-    def _test(self) -> tuple[TestResult]:
+    def _test(self) -> tuple[TestResult, ...]:
         return tuple(
             TestResult(
                 p, tuple(
@@ -337,9 +358,8 @@ class Simulator:
             for result, width in zip(self.testResults, widths[1:]):
                 self._printCell(result.values[i], width)
             print()
-    
 
-    def findCase(self, toTuple: bool = False) -> ComparisonResult:
+    def _findCase(self, toTuple: bool = False) -> ComparisonResult | ComparisonTupleResult:
 
         equalCases = []
         differentCases = []
@@ -351,26 +371,24 @@ class Simulator:
             else:
                 differentCases.append(prod)
 
-        return Component(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
-    
-    def isEqual(self) -> bool:
+        if toTuple:
+            return ComparisonTupleResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
+        else:
+            return ComparisonResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
+        
+    def _isEqual(self) -> bool:
         return all(len(set(res.values)) == 1 for res in self.testResults)
 
-    def isComplement(self) -> bool:
+    def _isComplement(self) -> bool:
         if(len(self.components) != 2):
             raise TypeError("두 요소를 가진 Simulator만 보수 판정을 할 수 있습니다.")
 
         return all(len(set(res.values)) == 2 for res in self.testResults)
 
     @staticmethod
-    def _printCell(s, width) -> None:
+    def _printCell(s: Any, width: int) -> None:
         print(f"{str(s):>{width}}", end = " ")
 
     @staticmethod
     def _createVariableLabel(usedVariables: Iterable[Variable]) -> str:
         return f"({', '.join(v.label for v in usedVariables)})"
-    
-    @staticmethod
-    def _isUsingSameVariables(expressions: Sequence[Component]) -> bool:
-        variables = set(expressions[0].usedVariables)
-        return all(set(exp.usedVariables) == variables for exp in expressions)

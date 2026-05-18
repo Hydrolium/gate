@@ -44,7 +44,7 @@ Simulator(a.nand(b.nand(c)), a.nand(b).nand(c), Component.nand_n(a, b, c)).print
 print()
 
 # n 변수에서 xor과 nxor 인지 확인
-vals = [Variable(l) for l in "abcdefghijklmn"]
+vals = [Variable(l) for l in "abcdefghijkl"]
 for i in range(2, len(vals) + 1):
     curV = vals[:i]
     F1 = Component.xor_n(*curV)
@@ -54,9 +54,9 @@ for i in range(2, len(vals) + 1):
 
     print(f"(변수 수) = {len(curV):<2} 에서 XOR과 NXOR 연산은 ", end="")
     simulator = Simulator(F1, F2)
-    if simulator.isEqual():
+    if simulator.isEqual:
         print("같음.")
-    if simulator.isComplement():
+    if simulator.isComplement:
         print("보수임.")
 
 print(Component.and_n(1, 1, 1).toFuncStyle())
@@ -71,8 +71,12 @@ simulator = Simulator(X, O)
 
 simulator.printTruthTable()
 
-ca = simulator.findCase(toTuple=True)
-print("사용된 변수들:", "(" + ", ".join(v.label for v in ca["variables"]) + ")")
+ca = simulator.caseTuple
+print("사용된 변수들:", "(" + ", ".join(v.label for v in ca.variables) + ")")
 
-print(X.toFuncStyle("F"), "=", O, "이 되는 경우:", ca["same"])
-print(X.toFuncStyle("G"), "≠", O, "이 되는 경우:", ca["different"])
+print(X.toFuncStyle("F"), "=", O, "이 되는 경우:", ca.same)
+print(X.toFuncStyle("G"), "≠", O, "이 되는 경우:", ca.different)
+
+print()
+
+print(simulator)
