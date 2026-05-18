@@ -71,11 +71,10 @@ simulator = Simulator(X, O)
 
 simulator.printTruthTable()
 
-ca = simulator.caseTuple
-print("사용된 변수들:", "(" + ", ".join(v.label for v in ca.variables) + ")")
+print("사용된 변수들:", "(" + ", ".join(v.label for v in simulator.caseTuple.variables) + ")")
 
-print(X.toFuncStyle("F"), "=", O, "이 되는 경우:", ca.same)
-print(X.toFuncStyle("G"), "≠", O, "이 되는 경우:", ca.different)
+print(X.toFuncStyle("F"), "=", O, "이 되는 경우:", simulator.caseTuple.same)
+print(X.toFuncStyle("G"), "≠", O, "이 되는 경우:", simulator.caseTuple.different)
 
 print()
 
