@@ -462,7 +462,7 @@ class Simulator:
                 self._printCell(result.values[i], width)
             print()
 
-    def simplify(self, mode=Literal["SOP", "POS"]):
+    def simplify(self, mode: Literal["SOP", "POS"]):
         if(len(self.components) != 1):
             raise ValueError("간략화는 하나의 함수에 대해서만 지원합니다.")
         terms = [re.values[0] for re in Simulator(self.components[0]).testResults]
