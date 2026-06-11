@@ -1,7 +1,10 @@
 from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+import math
+
+import random
 
 def reduce[T, U](func: Callable[[U, T], U], iterable: Iterable[T], initial: U | None = None) -> U:
     it = iter(iterable)
@@ -37,7 +40,13 @@ NXOR = Operator('NXOR', lambda *x: int(1 - reduce(lambda x1, x2: x1 ^ x2, x)), l
 
 NOT = Operator("NOT", lambda x: int(not x), lambda x: f"{x}'")
 
-type VariableProd = dict[str, int]
+type boolValue = Literal[0, 1]
+
+type VariableProd = dict[str, boolValue]
+type KMap = tuple[tuple[boolValue, ...], ...]
+
+type GroupopedCells = set[tuple[int, int]]
+type GroupopedKMap = tuple[tuple[tuple[GroupopedCells, ...], ...], ...]
 
 class Component:
     def __init__(self, label: str, usedVariables: tuple[Variable, ...] | None = None) -> None:
@@ -61,71 +70,175 @@ class Component:
     def __invert__(self) -> Expression:
         return Expression(NOT, self)
 
-    def __mul__(self, other: Component | int) -> Expression:
+    def __mul__(self, other: Component | boolValue) -> Expression:
         return Expression(AND, self, other)
     
-    def __rmul__(self, other: Component | int) -> Expression:
+    def __rmul__(self, other: Component | boolValue) -> Expression:
         return Expression(AND, other, self)
     
-    def __and__(self, other: Component | int) -> Expression:
+    def __and__(self, other: Component | boolValue) -> Expression:
         return self.__mul__(other)
     
-    def __rand__(self, other: Component | int) -> Expression:
+    def __rand__(self, other: Component | boolValue) -> Expression:
         return self.__rmul__(other)
     
-    def __add__(self, other: Component | int) -> Expression:
+    def __add__(self, other: Component | boolValue) -> Expression:
         return Expression(OR, self, other)
     
-    def __radd__(self, other: Component | int) -> Expression:
+    def __radd__(self, other: Component | boolValue) -> Expression:
         return Expression(OR, other, self)
 
-    def __or__(self, other: Component | int) -> Expression:
+    def __or__(self, other: Component | boolValue) -> Expression:
         return self.__add__(other)
 
-    def __ror__(self, other: Component | int) -> Expression:
+    def __ror__(self, other: Component | boolValue) -> Expression:
         return self.__radd__(other)
     
-    def __xor__(self, other: Component | int) -> Expression:
+    def __xor__(self, other: Component | boolValue) -> Expression:
         return Expression(XOR, self, other)
 
-    def __rxor__(self, other: Component | int) -> Expression:
+    def __rxor__(self, other: Component | boolValue) -> Expression:
         return Expression(XOR, other, self)
 
-    def nand(self, other: Component | int) -> Expression:
+    def nand(self, other: Component | boolValue) -> Expression:
         return Expression(NAND, self, other)
     
-    def nor(self, other: Component | int) -> Expression:
-        return Expression(NOR, other)
+    def nor(self, other: Component | boolValue) -> Expression:
+        return Expression(NOR, self, other)
     
-    def nxor(self, other: Component | int) -> Expression:
+    def nxor(self, other: Component | boolValue) -> Expression:
         return Expression(NXOR, self, other)
     
     @staticmethod
-    def and_n(*components: Component | int) -> Expression:
+    def and_n(*components: Component | boolValue) -> Expression:
         return Expression(AND, *components)
 
     @staticmethod
-    def nand_n(*components: Component | int) -> Expression:
+    def nand_n(*components: Component | boolValue) -> Expression:
         return Expression(NAND, *components)
     
     @staticmethod
-    def or_n(*components: Component | int) -> Expression:
+    def or_n(*components: Component | boolValue) -> Expression:
         return Expression(OR, *components)
 
     @staticmethod
-    def nor_n(*components: Component | int) -> Expression:
+    def nor_n(*components: Component | boolValue) -> Expression:
         return Expression(NOR, *components)
     
     @staticmethod
-    def xor_n(*components: Component | int) -> Expression:
+    def xor_n(*components: Component | boolValue) -> Expression:
         return Expression(XOR, *components)
     
     @staticmethod
-    def nxor_n(*components: Component | int) -> Expression:
+    def nxor_n(*components: Component | boolValue) -> Expression:
         return Expression(NXOR, *components)
+    
+    @staticmethod
+    def SOP(*products: tuple[tuple[Variable, ...], ...]):
+        return Component.or_n(*(Component.and_n(*variables) for variables in products))
+    
+    @staticmethod
+    def POS(*sums: tuple[tuple[Variable, ...], ...]):
+        return Component.and_n(*(Component.or_n(*variables) for variables in sums))
+    
+    @staticmethod
+    def fromOnes(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
+        
+        variables = Component._convertVariables(terms, variables)
+        prods = Component._makeProds(variables)
+
+        minterms = []
+        for idx, term in enumerate(terms):
+            if not term:
+                continue
+
+            prod = prods[idx]
+            minterms.append(
+                Component.and_n(*(v if prod[v.label] else ~v for v in variables))
+            )
+
+        return Component.or_n(*minterms)
+    
+    @staticmethod
+    def fromZeros(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
+
+        variables = Component._convertVariables(terms, variables)
+        prods = Component._makeProds(variables)
+
+        maxterms = []
+        for idx, term in enumerate(terms):
+            if term:
+                continue
+
+            prod = prods[idx]
+            maxterms.append(
+                Component.or_n(*(~v if prod[v.label] else v for v in variables))
+            )
+
+        return Component.and_n(*maxterms)
+    
+    @staticmethod
+    def fromMintermIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression:
+        maxIndices = max(indices)
+
+        indicesLimit = (1 << len(variables))
+        if maxIndices >= indicesLimit:
+            raise ValueError(f"항 번호는 2^(변수 수) - 1 = 2^{len(variables)} - 1 = {indicesLimit - 1}을(를) 초과할 수 없습니다.")
+
+        indicesSet = set(indices)
+        terms = (1 if i in indicesSet else 0 for i in range(indicesLimit))
+
+        return Component.fromOnes(*terms, variables=variables)
+    
+    @staticmethod
+    def fromMaxmIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression:
+        maxIndices = max(indices)
+
+        indicesLimit = (1 << len(variables))
+        if maxIndices >= indicesLimit:
+            raise ValueError(f"항 번호는 2^(변수 수) - 1 = 2^{len(variables)} - 1 = {indicesLimit - 1}을(를) 초과할 수 없습니다.")
+
+        indicesSet = set(indices)
+        terms = (0 if i in indicesSet else 1 for i in range(indicesLimit))
+
+        return Component.fromZeros(*terms, variables=variables)
 
     @staticmethod
-    def _toComponent(value: Component | int) -> Component:
+    def _convertVariables(terms: tuple[int, ...], variables: tuple[Variable, ...] | None):
+        termsCount = len(terms)
+        if variables:
+            variableCount = len(variables)
+            requiredCount = (1 << variableCount)
+            if termsCount != requiredCount:
+                raise ValueError(f"2^(변수 수) = 2^{variableCount} = {requiredCount} 길이의 terms이 필요합니다.(전달된 terms 길이: {termsCount})")
+            
+            return variables
+        else:
+            variableCount = Component._checkPowerOfTwo(termsCount)
+            if variableCount == -1:
+                raise ValueError("항의 수는 2의 n제곱 이여야 합니다.")
+            
+            return tuple(Variable(label) for label in "abcdefghijklmnopqrstuvwxyz"[:variableCount])
+        
+    @staticmethod
+    def _checkPowerOfTwo(a: int) -> int:
+        if a > 0 and (a & (a-1)) == 0:
+            return round(math.log2(a))
+        return -1
+
+    @staticmethod
+    def _makeProds(variables: tuple[Variable, ...]) -> tuple[VariableProd, ...]:
+        labels = [v.label for v in variables]
+
+        n = len(variables)
+        prod = []
+        for i in range(1 << n):
+            prod.append({labels[j]: (i >> (n - 1 -j )) & 1 for j in range(n)})
+
+        return tuple(prod)
+
+    @staticmethod
+    def _toComponent(value: Component | boolValue) -> Component:
         if isinstance(value, int):
             return Constant(str(int(bool(value))), int(bool(value)))
         elif isinstance(value, Component):
@@ -134,7 +247,7 @@ class Component:
         raise TypeError(f"지원하지 않는 타입입니다: {type(value).__name__}. 'int' 또는 Component 타입만 가능합니다.")
     
     @staticmethod
-    def _toComponents(values: Iterable[Component | int]) -> tuple[Component, ...]:
+    def _toComponents(values: Iterable[Component | boolValue]) -> tuple[Component, ...]:
         return tuple(Component._toComponent(v) for v in values)
 
 class ConstComponent(Component):
@@ -202,7 +315,7 @@ class Variable(VariableComponent):
         return self._resolve(self, valuesDict, keepLabels)
 
 class Expression(VariableComponent):
-    def __init__(self, operator: Operator, *terms: Component | int) -> None:
+    def __init__(self, operator: Operator, *terms: Component | boolValue) -> None:
         mappedTerms = Component._toComponents(terms)
 
         super().__init__(None, tuple(dict.fromkeys(var for com in mappedTerms for var in com.usedVariables)))
@@ -253,13 +366,13 @@ class ComparisonResult:
     
 @dataclass(frozen=True)
 class ComparisonTupleResult:
-    same: tuple[tuple[int, ...], ...]
-    different: tuple[tuple[int, ...], ...]
+    same: tuple[tuple[boolValue, ...], ...]
+    different: tuple[tuple[boolValue, ...], ...]
     variables: tuple[Variable, ...]
 
 class Simulator:
 
-    def __init__(self, *components: Component | int, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
+    def __init__(self, *components: Component | boolValue, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
 
         mappedComponents = Component._toComponents(components)
 
@@ -279,7 +392,7 @@ class Simulator:
         if variableSorted:
             self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
 
-        self.prods: tuple[VariableProd, ...] = self._makeProds()
+        self.prods: tuple[VariableProd, ...] = Component._makeProds(self.usedVariables)
         self.testResults: tuple[TestResult, ...] = self._test()
 
         self.case: ComparisonResult = self._findCase()
@@ -291,16 +404,6 @@ class Simulator:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(components={self.components})"
-
-    def _makeProds(self) -> tuple[VariableProd, ...]:
-        labels = [v.label for v in self.usedVariables]
-
-        n = len(self.usedVariables)
-        prod = []
-        for i in range(1 << n):
-            prod.append({labels[j]: (i >> (n - 1 -j )) & 1 for j in range(n)})
-
-        return tuple(prod)
 
     def _test(self) -> tuple[TestResult, ...]:
         return tuple(
@@ -359,6 +462,15 @@ class Simulator:
                 self._printCell(result.values[i], width)
             print()
 
+    def simplify(self, mode=Literal["SOP", "POS"]):
+        if(len(self.components) != 1):
+            raise ValueError("간략화는 하나의 함수에 대해서만 지원합니다.")
+        terms = [re.values[0] for re in Simulator(self.components[0]).testResults]
+
+        return self._simplify(
+            terms, self.usedVariables, int(mode == "SOP")
+        )
+    
     def _findCase(self, toTuple: bool = False) -> ComparisonResult | ComparisonTupleResult:
 
         equalCases = []
@@ -392,3 +504,226 @@ class Simulator:
     @staticmethod
     def _createVariableLabel(usedVariables: Iterable[Variable]) -> str:
         return f"({', '.join(v.label for v in usedVariables)})"
+    
+    @staticmethod
+    def _toKMap(terms: tuple[Literal[0, 1], ...]) -> KMap:
+        re = Component._checkPowerOfTwo(len(terms))
+
+        if re == -1 or re < 2 or re > 4:
+            raise ValueError("terms의 길이는 2의 n제곱이여야합니다.(n=2,3,4)")
+
+        if re == 2:
+            colCount = 2
+            rowCase = (0, 1)
+            colCase = (0, 1)
+        elif re == 3:
+            colCount = 4
+            rowCase = (0, 1)
+            colCase = (0, 1, 3, 2)
+        elif re == 4:
+            colCount = 4
+            rowCase = (0, 1, 3, 2)
+            colCase = (0, 1, 3, 2)
+
+        return tuple(tuple(terms[i * colCount + j] for j in colCase) for i in rowCase)
+    
+    @staticmethod    
+    def _groupKMap(karnaughMap: KMap, target: Literal[0, 1]) -> GroupopedKMap:
+
+        rowCount = len(karnaughMap)
+        colCount = len(karnaughMap[0])
+
+        pi = tuple([tuple() for _ in range(colCount)] for _ in range(rowCount))
+
+        ZOHAP = {
+            16: ((4, 4), ),
+            8: ((4, 2), (2, 4)),
+            4: ((4, 1), (1, 4), (2, 2)),
+            2: ((2, 1), (1, 2)),
+            1: ((1, 1), )
+        }
+
+        for zohap in ZOHAP.values():
+            for kernelX, kernelY in zohap:
+
+                if rowCount < kernelX or colCount < kernelY:
+                    continue
+
+
+                for i in range(1 if kernelX == rowCount else rowCount):
+                    for j in range(1 if kernelY == colCount else colCount):
+
+                        isSameWithTarget = True
+                        hangs = set()
+                        for x in range(kernelX):
+                            if not isSameWithTarget:
+                                break
+
+                            for y in range(kernelY):
+                                realX = (i + x) % rowCount
+                                realY = (j + y) % colCount
+                                if karnaughMap[realX][realY] != target:
+                                    isSameWithTarget = False
+                                    break
+
+                                hangs.add((realX, realY))
+
+                        if not isSameWithTarget:
+                            continue
+
+                        for x in range(kernelX):
+                            for y in range(kernelY):
+                                ta = pi[(i + x) % rowCount][(j + y) % colCount]
+
+                                if any(hangs <= v for v in ta):
+                                    continue
+
+                                pi[(i + x) % rowCount][(j + y) % colCount] += (hangs, )
+        return tuple(tuple(p for p in o) for o in pi)
+
+    @staticmethod
+    def _getEPI(groupopedKM: GroupopedKMap) -> tuple[GroupopedCells, ...]:
+
+        epis = []
+        for i in range(len(groupopedKM)):
+            for j in range(len(groupopedKM[0])):
+                s = groupopedKM[i][j]
+
+                if len(s) == 1 and s[0] not in epis:
+                    epis.append(s[0])
+
+        return tuple(epis)
+
+    @staticmethod
+    def _getEPIRemovedKM(piList: GroupopedKMap) -> GroupopedKMap:
+        epis = Simulator._getEPI(piList)
+
+        newGKM = tuple([tuple() for _ in range(len(piList[0]))] for _ in range(len(piList)))
+        for i in range(len(piList)):
+            for j in range(len(piList[0])):
+                s = piList[i][j]
+
+                if not s:
+                    continue
+
+                if any(x in epis for x in s):
+                    continue
+                
+                newGKM[i][j] = piList[i][j]
+        return tuple(tuple(p for p in o) for o in newGKM)
+
+    @staticmethod
+    def _selectPI(epiRemovedList: GroupopedKMap) -> tuple[GroupopedCells, ...]:
+        flattenPis = [c for a in epiRemovedList for b in a for c in b]
+
+        d = {} # pi항의 길이: pi[] 딕셔너리
+        for pi in flattenPis:
+            length = len(pi)
+            pi_tuple = tuple(sorted(pi))
+
+            if length not in d:
+                d[length] = []
+            d[length].append(pi_tuple)
+
+        for length, piList in d.items():
+            counts = {item: piList.count(item) for item in set(piList)}
+            d[length] = list(pi for pi, count in sorted(counts.items(), key=lambda x: x[1]))
+
+        sortedAllPis = dict(sorted(d.items(), reverse=True))
+        # length가 큰 순서대로 정렬
+
+        dd = {} # pi: 항번호[] 딕셔너리
+        colCount = len(epiRemovedList[0])
+        for i, gap in enumerate(epiRemovedList):
+            for j, g in enumerate(gap):
+                if not g:
+                    continue
+
+                for pi in g:
+                    k = tuple(sorted(pi))
+                    if k not in dd:
+                        dd[k] = []
+                    dd[k].append(i * colCount + j)
+
+        selectedPis = []
+        selectedHangs = set()
+        for length, piss in sortedAllPis.items():
+            for my in random.sample(piss, len(piss)):
+                if my in selectedPis:
+                    continue
+                usedHangs = dd[my]
+                if all(hang in selectedHangs for hang in usedHangs):
+                    continue
+                selectedPis.append(my)
+                selectedHangs.update(usedHangs)
+
+        return tuple(selectedPis)
+
+    @staticmethod
+    def _combineCells(cells: GroupopedCells, variables: tuple[Variable, ...], target: Literal[0, 1]) -> Expression:
+        sonsur = ((0, 0), (0, 1), (1, 1), (1, 0))
+        variableCount = len(variables)
+        variableCase = [[] for _ in range(variableCount)]
+
+        if variableCount == 2:
+            for x, y in cells:
+                variableCase[0].append(x)
+                variableCase[1].append(y)
+        elif variableCount == 3:
+            for x, y in cells:
+                a = sonsur[y]
+                variableCase[0].append(x)
+                variableCase[1].append(a[0])
+                variableCase[2].append(a[1])
+        elif variableCount == 4:
+            for x, y in cells:
+                a = sonsur[x]
+                b = sonsur[y]
+                variableCase[0].append(a[0])
+                variableCase[1].append(a[1])
+                variableCase[2].append(b[0])
+                variableCase[3].append(b[1])
+
+        terms = []
+        for i, v in enumerate(variableCase):
+            first = v[0]
+            if all(z == first for z in v):
+                if first == target:
+                    terms.append(variables[i])
+                else:
+                    terms.append(~variables[i])
+        return Component.and_n(*terms) if target == 1 else Component.or_n(*terms)
+
+    @staticmethod
+    def _operatePis(pis: tuple[GroupopedCells, ...], variables: tuple[Variable, ...], target: Literal[0, 1]):
+        if target == 1:
+            return Component.or_n(*(Simulator._combineCells(pi, variables, 1) for pi in pis))
+        else:
+            return Component.and_n(*(Simulator._combineCells(pi, variables, 0) for pi in pis))
+
+    @staticmethod
+    def _simplify(terms: tuple[Literal[0, 1], ...], variables: tuple[Variable, ...], target: Literal[0, 1]) -> Expression:
+        grouppedKM = Simulator._groupKMap(
+                        Simulator._toKMap(terms),
+                        target
+                    )
+        
+        epis = Simulator._getEPI(grouppedKM)
+        selectedPis = Simulator._selectPI(
+                        Simulator._getEPIRemovedKM(grouppedKM),
+                    )
+        
+        return Simulator._operatePis(epis + selectedPis, variables, target)
+    
+
+grouppedKM = Simulator._groupKMap(
+            Simulator._toKMap((1,1,1,1,0,1,0,1,1,1,1,0,0,1,0,1)),
+            1
+        )
+
+epis = Simulator._getEPI(grouppedKM)
+selectedPis = Simulator._selectPI(
+            Simulator._getEPIRemovedKM(grouppedKM)
+        )
+
+# print(selectedPis)
