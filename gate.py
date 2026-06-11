@@ -191,7 +191,7 @@ class Component:
         return Component.fromOnes(*terms, variables=variables)
     
     @staticmethod
-    def fromMaxmIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression:
+    def fromMaxtermIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression:
         maxIndices = max(indices)
 
         indicesLimit = (1 << len(variables))
