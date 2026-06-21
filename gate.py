@@ -134,11 +134,11 @@ class Component:
         return Expression(NXOR, *components)
     
     @staticmethod
-    def SOP(*products: tuple[tuple[Variable, ...], ...]):
+    def SOP(*products: tuple[Variable, ...]):
         return Component.or_n(*(Component.and_n(*variables) for variables in products))
     
     @staticmethod
-    def POS(*sums: tuple[tuple[Variable, ...], ...]):
+    def POS(*sums: tuple[Variable, ...]):
         return Component.and_n(*(Component.or_n(*variables) for variables in sums))
     
     @staticmethod
@@ -272,7 +272,11 @@ class ConstComponent(Component):
         return f"{self.label} = {self.value}"
 
 class Constant(ConstComponent):
-    pass
+    def __str__(self) -> str:
+        return str(self.label)
+    
+    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
+        return self if keepLabels else Constant(str(self.value), self.value)
 
 class EvaluatedResult(ConstComponent):
     pass
@@ -292,7 +296,7 @@ class VariableComponent(Component):
         if isinstance(component, Expression):
             return component(**valuesDict, keepLabels=keepLabels)
         elif isinstance(component, ConstComponent):
-            return component
+            return component(keepLabels=keepLabels)
         elif isinstance(component, Variable):
             if component.label not in valuesDict:
                 return component
