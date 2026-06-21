@@ -142,7 +142,7 @@ class Component:
         return Component.and_n(*(Component.or_n(*variables) for variables in sums))
     
     @staticmethod
-    def fromOnes(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
+    def makeCanonicalSOP(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
         
         variables = Component._convertVariables(terms, variables)
         prods = Component._makeProds(variables)
@@ -160,7 +160,7 @@ class Component:
         return Component.or_n(*minterms)
     
     @staticmethod
-    def fromZeros(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
+    def makeCanonicalPOS(*terms: int, variables: tuple[Variable, ...] | None = None) -> Expression:
 
         variables = Component._convertVariables(terms, variables)
         prods = Component._makeProds(variables)
@@ -346,6 +346,16 @@ class Expression(VariableComponent):
 
     def toFuncStyle(self, funcName="F") -> str:
         return f"{funcName}({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
+    
+    def simplify(self,  mode: Literal["SOP", "POS"] = "SOP") -> Expression:
+
+        simulator = Simulator(self)
+
+        terms = [re.values[0] for re in simulator.testResults]
+
+        return Simplifier._simplify(
+            terms, self.usedVariables, int(mode == "SOP")
+        )
 
 class TestResult:
     def __init__(self, prod: VariableProd, values: tuple[int, ...]) -> None:
@@ -370,140 +380,7 @@ class ComparisonTupleResult:
     different: tuple[tuple[boolValue, ...], ...]
     variables: tuple[Variable, ...]
 
-class Simulator:
-
-    def __init__(self, *components: Component | boolValue, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
-
-        mappedComponents = Component._toComponents(components)
-
-        self.components: tuple[Component, ...] = mappedComponents
-
-        self.labels: tuple[str, ...] = tuple(expression.label for expression in mappedComponents)
-
-        self.usedVariables: tuple[Variable, ...] = tuple(dict.fromkeys(
-            var for exp in mappedComponents for var in exp.usedVariables
-        ))
-
-        if variableSequence is not None:
-            if set(self.usedVariables) != set(variableSequence):
-                raise ValueError("전달된 variableSequence가 수식의 변수 목록과 일치하지 않습니다.")
-            self.usedVariables = variableSequence
-
-        if variableSorted:
-            self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
-
-        self.prods: tuple[VariableProd, ...] = Component._makeProds(self.usedVariables)
-        self.testResults: tuple[TestResult, ...] = self._test()
-
-        self.case: ComparisonResult = self._findCase()
-        self.caseTuple: ComparisonResult = self._findCase(True)
-
-        self.isEqual: bool = self._isEqual()
-        
-        self.isComplement: bool | None = self._isComplement() if len(mappedComponents) == 2 else None
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(components={self.components})"
-
-    def _test(self) -> tuple[TestResult, ...]:
-        return tuple(
-            TestResult(
-                p, tuple(
-                    exp(**p).value
-                    for exp in self.components
-                )
-            )
-            for p in self.prods
-        )
-    
-    def printTruthTable(self) -> None:
-
-        widths = []
-
-        vl = self._createVariableLabel(self.usedVariables)
-        print(vl, end=" ")
-
-        widths.append(len(vl))
-
-        for label in self.labels:
-            print(label, end=" ")
-            widths.append(len(label))
-
-        print()
-
-        for result in self.testResults:
-            self._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
-            for value, width in zip(result.values, widths[1:]):
-                self._printCell(value, width)
-            print()
-
-    def printTransposedTruthTable(self) -> None:
-        
-        widths = []
-
-        vl = self._createVariableLabel(self.usedVariables)
-        width = max(len(lab) for lab in [vl, *self.labels])
-        
-        self._printCell(vl, width)
-
-        widths.append(width)
-
-        for prod in self.prods:
-            cell = "(" + ", ".join(str(v) for v in prod.values()) + ")"
-            print(cell, end=" ")
-            widths.append(len(cell))
-
-        print()
-
-        for i, label in enumerate(self.labels):
-            self._printCell(label, widths[0])
-
-            for result, width in zip(self.testResults, widths[1:]):
-                self._printCell(result.values[i], width)
-            print()
-
-    def simplify(self, mode: Literal["SOP", "POS"]):
-        if(len(self.components) != 1):
-            raise ValueError("간략화는 하나의 함수에 대해서만 지원합니다.")
-        terms = [re.values[0] for re in Simulator(self.components[0]).testResults]
-
-        return self._simplify(
-            terms, self.usedVariables, int(mode == "SOP")
-        )
-    
-    def _findCase(self, toTuple: bool = False) -> ComparisonResult | ComparisonTupleResult:
-
-        equalCases = []
-        differentCases = []
-
-        for res in self.testResults:
-            prod = tuple(res.prod.values()) if toTuple else res.prod
-            if len(set(res.values)) == 1:
-                equalCases.append(prod)
-            else:
-                differentCases.append(prod)
-
-        if toTuple:
-            return ComparisonTupleResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
-        else:
-            return ComparisonResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
-        
-    def _isEqual(self) -> bool:
-        return all(len(set(res.values)) == 1 for res in self.testResults)
-
-    def _isComplement(self) -> bool:
-        if(len(self.components) != 2):
-            raise TypeError("두 요소를 가진 Simulator만 보수 판정을 할 수 있습니다.")
-
-        return all(len(set(res.values)) == 2 for res in self.testResults)
-
-    @staticmethod
-    def _printCell(s: Any, width: int) -> None:
-        print(f"{str(s):>{width}}", end = " ")
-
-    @staticmethod
-    def _createVariableLabel(usedVariables: Iterable[Variable]) -> str:
-        return f"({', '.join(v.label for v in usedVariables)})"
+class Simplifier:
     
     @staticmethod
     def _toKMap(terms: tuple[Literal[0, 1], ...]) -> KMap:
@@ -595,8 +472,7 @@ class Simulator:
         return tuple(epis)
 
     @staticmethod
-    def _getEPIRemovedKM(piList: GroupopedKMap) -> GroupopedKMap:
-        epis = Simulator._getEPI(piList)
+    def _getEPIRemovedKM(piList: GroupopedKMap, epis: tuple[GroupopedCells, ...]) -> GroupopedKMap:
 
         newGKM = tuple([tuple() for _ in range(len(piList[0]))] for _ in range(len(piList)))
         for i in range(len(piList)):
@@ -697,33 +573,146 @@ class Simulator:
     @staticmethod
     def _operatePis(pis: tuple[GroupopedCells, ...], variables: tuple[Variable, ...], target: Literal[0, 1]):
         if target == 1:
-            return Component.or_n(*(Simulator._combineCells(pi, variables, 1) for pi in pis))
+            return Component.or_n(*(Simplifier._combineCells(pi, variables, 1) for pi in pis))
         else:
-            return Component.and_n(*(Simulator._combineCells(pi, variables, 0) for pi in pis))
+            return Component.and_n(*(Simplifier._combineCells(pi, variables, 0) for pi in pis))
 
     @staticmethod
     def _simplify(terms: tuple[Literal[0, 1], ...], variables: tuple[Variable, ...], target: Literal[0, 1]) -> Expression:
-        grouppedKM = Simulator._groupKMap(
-                        Simulator._toKMap(terms),
+        grouppedKM = Simplifier._groupKMap(
+                        Simplifier._toKMap(terms),
                         target
                     )
         
-        epis = Simulator._getEPI(grouppedKM)
-        selectedPis = Simulator._selectPI(
-                        Simulator._getEPIRemovedKM(grouppedKM),
+        epis = Simplifier._getEPI(grouppedKM)
+        selectedPis = Simplifier._selectPI(
+                        Simplifier._getEPIRemovedKM(grouppedKM, epis)
                     )
         
-        return Simulator._operatePis(epis + selectedPis, variables, target)
+        return Simplifier._operatePis(epis + selectedPis, variables, target)
+
+class Simulator:
+
+    def __init__(self, *components: Component | boolValue, variableSequence: tuple[Variable, ...] | None = None, variableSorted: bool = False) -> None:
+
+        mappedComponents = Component._toComponents(components)
+
+        self.components: tuple[Component, ...] = mappedComponents
+
+        self.labels: tuple[str, ...] = tuple(expression.label for expression in mappedComponents)
+
+        self.usedVariables: tuple[Variable, ...] = tuple(dict.fromkeys(
+            var for exp in mappedComponents for var in exp.usedVariables
+        ))
+
+        if variableSequence is not None:
+            if set(self.usedVariables) != set(variableSequence):
+                raise ValueError("전달된 variableSequence가 수식의 변수 목록과 일치하지 않습니다.")
+            self.usedVariables = variableSequence
+
+        if variableSorted:
+            self.usedVariables = tuple(sorted(self.usedVariables, key=lambda v: v.label))
+
+        self.prods: tuple[VariableProd, ...] = Component._makeProds(self.usedVariables)
+        self.testResults: tuple[TestResult, ...] = self._test()
+
+        self.case: ComparisonResult = self._findCase()
+        self.caseTuple: ComparisonResult = self._findCase(True)
+
+        self.isEqual: bool = self._isEqual()
+        
+        self.isComplement: bool | None = self._isComplement() if len(mappedComponents) == 2 else None
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(components={self.components})"
     
-
-grouppedKM = Simulator._groupKMap(
-            Simulator._toKMap((1,1,1,1,0,1,0,1,1,1,1,0,0,1,0,1)),
-            1
+    def _test(self) -> tuple[TestResult, ...]:
+        return tuple(
+            TestResult(
+                p, tuple(
+                    exp(**p).value
+                    for exp in self.components
+                )
+            )
+            for p in self.prods
         )
+    
+    def printTruthTable(self) -> None:
 
-epis = Simulator._getEPI(grouppedKM)
-selectedPis = Simulator._selectPI(
-            Simulator._getEPIRemovedKM(grouppedKM)
-        )
+        widths = []
 
-# print(selectedPis)
+        vl = self._createVariableLabel(self.usedVariables)
+        print(vl, end=" ")
+
+        widths.append(len(vl))
+
+        for label in self.labels:
+            print(label, end=" ")
+            widths.append(len(label))
+
+        print()
+
+        for result in self.testResults:
+            self._printCell("(" + ", ".join(str(v) for v in result.prod.values()) + ")", widths[0])
+            for value, width in zip(result.values, widths[1:]):
+                self._printCell(value, width)
+            print()
+
+    def printTransposedTruthTable(self) -> None:
+        
+        widths = []
+
+        vl = self._createVariableLabel(self.usedVariables)
+        width = max(len(lab) for lab in [vl, *self.labels])
+        
+        self._printCell(vl, width)
+
+        widths.append(width)
+
+        for prod in self.prods:
+            cell = "(" + ", ".join(str(v) for v in prod.values()) + ")"
+            print(cell, end=" ")
+            widths.append(len(cell))
+
+        print()
+
+        for i, label in enumerate(self.labels):
+            self._printCell(label, widths[0])
+
+            for result, width in zip(self.testResults, widths[1:]):
+                self._printCell(result.values[i], width)
+            print()
+
+    def _findCase(self, toTuple: bool = False) -> ComparisonResult | ComparisonTupleResult:
+
+        equalCases = []
+        differentCases = []
+
+        for res in self.testResults:
+            prod = tuple(res.prod.values()) if toTuple else res.prod
+            if len(set(res.values)) == 1:
+                equalCases.append(prod)
+            else:
+                differentCases.append(prod)
+
+        if toTuple:
+            return ComparisonTupleResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
+        else:
+            return ComparisonResult(same=tuple(equalCases), different=tuple(differentCases), variables=self.usedVariables)
+        
+    def _isEqual(self) -> bool:
+        return all(len(set(res.values)) == 1 for res in self.testResults)
+
+    def _isComplement(self) -> bool:
+        if(len(self.components) != 2):
+            raise TypeError("두 요소를 가진 Simulator만 보수 판정을 할 수 있습니다.")
+
+        return all(len(set(res.values)) == 2 for res in self.testResults)
+
+    @staticmethod
+    def _printCell(s: Any, width: int) -> None:
+        print(f"{str(s):>{width}}", end = " ")
+
+    @staticmethod
+    def _createVariableLabel(usedVariables: Iterable[Variable]) -> str:
+        return f"({', '.join(v.label for v in usedVariables)})"

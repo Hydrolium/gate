@@ -168,24 +168,16 @@ O = Constant("O", 0)
 # Simulator(a*b, a + ~b, b * ~c, ).printTruthTable()
 
 
-# F = Component.fromOnes(1, 0, 0, 1, 1, 0, 0, 1, variables=(a, b, d))
-# F2 = Component.fromZeros(1, 0, 0, 1, 1, 0, 0, 1, variables=(a, b, d))
+# F = Component.makeCanonicalSOP(1, 0, 0, 1, 1, 0, 0, 1, variables=(a, b, d))
+# F2 = Component.makeCanonicalPOS(1, 0, 0, 1, 1, 0, 0, 1, variables=(a, b, d))
 
-# F3 = Component.fromMintermIndices(0, 3, 4, 27, variables=(a, b, d))
 
-POS2 = Component.POS((a, ~b), (a, c), (a, d), (~a, b, ~c, ~d))
 
-FF = Component.fromOnes(1,0,1,0,1,1,0,0,0,0,1,0,1,1,0,0, variables=(w,x,y,z))
+# simpd = F.simplify()
+# print(simpd)
 
-simpd = Simulator(FF).simplify(mode="SOP")
-simpddd = Simulator(FF).simplify(mode="POS")
+# simpd2 = F2.simplify()
+# print(simpd2)
 
-print(FF)
-print(simpd)
-print(simpddd)
-
-print(
-    Simulator(simpd, simpddd, variableSorted=True).isEqual
-)
-
-# Simulator(F, F2, F3).printTruthTable()
+F3 = a + b + c
+print(F3.simplify("SOP"))
