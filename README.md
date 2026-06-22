@@ -80,7 +80,7 @@ H = (a + 1) * (c ^ d) # ((a+1)·(c⊕d))
     - ```python
         Component.makeCanonicalSOP(0, 1, 1, 0, variables=(a, b)) # ((a'·b)+(a·b'))
         ```
-    > term의 길이는 $2^{\text{len(variables)}}$ 여야 합니다.
+    > terms의 길이는 $2^{\text{len(variables)}}$ 여야 합니다.
 3. `Component.fromMintermIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression`
     - 항 번호로부터 표준형 SOP를 반환합니다.
     - ```python
@@ -127,7 +127,7 @@ simplified_POS = F.simplify(mode="POS") # ((a+b)·(c))
     O(keepLabels=True) # O (O는 값이 0인 상수임.)
     ```
 
-**생성된 Expression에 값을 대입하는 경우**  
+**`Expression`에 값을 대입하는 경우**  
 - 값 대입 방식은 순서 대입과 키워드 대입 두개가 있습니다.  
 - 모든 변수에 대한 값을 한번에 줄 수도 있고 일부 변수 값만 줄 수 도 있습니다.
 1. 모든 변수에 값 대입하기  
