@@ -188,7 +188,7 @@ class Component:
         indicesSet = set(indices)
         terms = (1 if i in indicesSet else 0 for i in range(indicesLimit))
 
-        return Component.fromOnes(*terms, variables=variables)
+        return Component.makeCanonicalSOP(*terms, variables=variables)
     
     @staticmethod
     def fromMaxtermIndices(*indices: int, variables: tuple[Variable, ...]) -> Expression:
@@ -201,7 +201,7 @@ class Component:
         indicesSet = set(indices)
         terms = (0 if i in indicesSet else 1 for i in range(indicesLimit))
 
-        return Component.fromZeros(*terms, variables=variables)
+        return Component.makeCanonicalPOS(*terms, variables=variables)
 
     @staticmethod
     def _convertVariables(terms: tuple[int, ...], variables: tuple[Variable, ...] | None):
@@ -253,18 +253,15 @@ class Component:
 class ConstComponent(Component):
     def __init__(self, label: str, value: int) -> None:
         super().__init__(label)
-        self._value = int(bool(value))
+        self._value: boolValue = int(bool(value))
     
     @property
     def value(self) -> int:
         return self._value
 
     def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
-        return self
+        return self if keepLabels else Constant(str(self.value), self.value)
 
-    def __str__(self) -> str:
-        return str(self.value)
-    
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(label={self.label}, value={self.value})"
     
@@ -272,14 +269,11 @@ class ConstComponent(Component):
         return f"{self.label} = {self.value}"
 
 class Constant(ConstComponent):
-    def __str__(self) -> str:
-        return str(self.label)
-    
-    def __call__(self, *args: int, keepLabels: bool = False, **kargs: int) -> Component:
-        return self if keepLabels else Constant(str(self.value), self.value)
-
-class EvaluatedResult(ConstComponent):
     pass
+    
+class EvaluatedResult(ConstComponent):
+    def __str__(self):
+        return f"{self.label} = {self.value}"
 
 class VariableComponent(Component):
 
@@ -351,7 +345,7 @@ class Expression(VariableComponent):
     def toFuncStyle(self, funcName="F") -> str:
         return f"{funcName}({', '.join(v.label for v in self.usedVariables)}) = {self.label}"
     
-    def simplify(self,  mode: Literal["SOP", "POS"] = "SOP") -> Expression:
+    def simplify(self, mode: Literal["SOP", "POS"] = "SOP") -> Expression:
 
         simulator = Simulator(self)
 
@@ -621,7 +615,7 @@ class Simulator:
         self.testResults: tuple[TestResult, ...] = self._test()
 
         self.case: ComparisonResult = self._findCase()
-        self.caseTuple: ComparisonResult = self._findCase(True)
+        self.caseTuple: ComparisonTupleResult = self._findCase(True)
 
         self.isEqual: bool = self._isEqual()
         
